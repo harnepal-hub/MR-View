@@ -12,7 +12,7 @@
       height: 100%;
       overflow: hidden;
       font-family: Arial, sans-serif;
-      background-color: #111111;
+      background-color: #1a1a1a;
       color: #ffffff;
     }
     #ui-container {
@@ -61,6 +61,7 @@
       color: #ff9800;
       margin-top: 4px;
       margin-bottom: 10px;
+      word-break: break-all;
     }
     .instructions {
       font-size: 11px;
@@ -84,14 +85,14 @@
     
     <label for="model-select">Select Corridor Design:</label>
     <select id="model-select">
-      <option value="./design1.glb">Corridor Design 1</option>
-      <option value="./design2.glb" selected>Corridor Design 2</option>
-      <option value="./design3.glb">Corridor Design 3</option>
-      <option value="./design4.glb">Corridor Design 4</option>
-      <option value="./design5.glb">Corridor Design 5</option>
+      <option value="design1.glb">Corridor Design 1</option>
+      <option value="design2.glb" selected>Corridor Design 2</option>
+      <option value="design3.glb">Corridor Design 3</option>
+      <option value="design4.glb">Corridor Design 4</option>
+      <option value="design5.glb">Corridor Design 5</option>
     </select>
 
-    <div id="status-msg">Loading model...</div>
+    <div id="status-msg">Initializing...</div>
 
     <label>Rotate Y-Axis:</label>
     <div class="control-group">
@@ -117,8 +118,8 @@
     </div>
 
     <div class="instructions">
-      • <b>Desktop / Mobile:</b> Orbit 3D view with mouse.<br>
-      • <b>Meta Quest 3:</b> Open in Quest Browser. Tap <b>START AR</b> at the bottom. Pull trigger to fix model at physical corridor entrance.
+      • <b>Desktop:</b> Orbit 3D view with mouse.<br>
+      • <b>Meta Quest 3:</b> Open in Quest Browser, tap <b>START AR</b>.
     </div>
   </div>
 
@@ -131,45 +132,46 @@
     animate();
 
     function init() {
-      // 1. Scene setup (Neutral dark background for 2D browser)
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x1a1a1a);
 
-      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 1000);
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
       camera.position.set(0, 1.5, 5);
 
-      // 2. High-brightness lighting for architectural textures
-      const ambientLight = new THREE.AmbientLight(0xffffff, 2.2);
+      // Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
       scene.add(ambientLight);
-      const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.8);
+      const dirLight1 = new THREE.DirectionalLight(0xffffff, 2.0);
       dirLight1.position.set(5, 10, 5);
       scene.add(dirLight1);
-      const dirLight2 = new THREE.DirectionalLight(0xffffff, 1.0);
-      dirLight2.position.set(-5, -5, -5);
-      scene.add(dirLight2);
 
-      // 3. WebGL Renderer with Alpha Clearing
+      // Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls for Desktop
+      // Controls
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Add WebXR AR Passthrough Button
-      const arButton = ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test'],
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: document.body }
-      });
-      document.body.appendChild(arButton);
+      // AR Button
+      if ('xr' in navigator) {
+        navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+          if (supported) {
+            const arButton = ARButton.createButton(renderer, {
+              requiredFeatures: ['hit-test'],
+              optionalFeatures: ['dom-overlay'],
+              domOverlay: { root: document.body }
+            });
+            document.body.appendChild(arButton);
+          }
+        });
+      }
 
-      // 6. Handle entering/exiting Meta Quest 3 MR mode
       renderer.xr.addEventListener('sessionstart', () => {
-        scene.background = null; // Turns off dark background so Passthrough camera is visible
+        scene.background = null;
         renderer.setClearColor(0x000000, 0);
         document.body.style.backgroundColor = 'transparent';
       });
@@ -179,15 +181,14 @@
         document.body.style.backgroundColor = '#111111';
       });
 
-      // 7. Load Initial Model (Design 2)
-      loadModel('./design2.glb');
+      // Load initial model using clean URL path
+      const initialPath = document.getElementById('model-select').value;
+      loadModel(initialPath);
 
-      // Dropdown selector listener
       document.getElementById('model-select').addEventListener('change', function(e) {
         loadModel(e.target.value);
       });
 
-      // Controller trigger for model anchoring
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', onPlaceModel);
       scene.add(controller);
@@ -198,16 +199,25 @@
     function loadModel(filename) {
       const statusEl = document.getElementById('status-msg');
       statusEl.style.color = '#ff9800';
-      statusEl.innerText = 'Loading GLB...';
+      statusEl.innerText = 'Loading ' + filename + '...';
 
       if (currentModel) scene.remove(currentModel);
 
+      // Clean path to prevent subfolder mismatch
+      const targetUrl = new URL(filename, window.location.href).href;
+
       loader.load(
-        filename,
+        targetUrl,
         (gltf) => {
           currentModel = gltf.scene;
 
-          // Auto-center model at base/floor level
+          // Double sided materials fix for thin SketchUp walls
+          currentModel.traverse((child) => {
+            if (child.isMesh && child.material) {
+              child.material.side = THREE.DoubleSide;
+            }
+          });
+
           const box = new THREE.Box3().setFromObject(currentModel);
           const center = box.getCenter(new THREE.Vector3());
 
@@ -217,7 +227,6 @@
 
           scene.add(currentModel);
 
-          // Position Camera
           const size = box.getSize(new THREE.Vector3());
           if (orbitControls) {
             orbitControls.target.set(0, size.y / 2, 0);
@@ -225,7 +234,7 @@
           }
 
           statusEl.style.color = '#4CAF50';
-          statusEl.innerText = 'Model Loaded Successfully!';
+          statusEl.innerText = 'Loaded: ' + filename;
         },
         (xhr) => {
           if (xhr.lengthComputable) {
@@ -236,12 +245,11 @@
         (error) => {
           console.error('GLB Load Error:', error);
           statusEl.style.color = '#f44336';
-          statusEl.innerText = 'Error loading GLB file!';
+          statusEl.innerText = 'Failed to load ' + filename + '. Check file name in GitHub repository.';
         }
       );
     }
 
-    // Fix model entrance at Quest controller position
     function onPlaceModel() {
       if (currentModel && controller) {
         const targetPos = new THREE.Vector3();
@@ -254,7 +262,6 @@
       }
     }
 
-    // Fine-Tuning Controls
     function rotateModel(deg) {
       if (currentModel) currentModel.rotation.y += THREE.MathUtils.degToRad(deg);
     }
