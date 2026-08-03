@@ -9,7 +9,7 @@
       margin: 0;
       overflow: hidden;
       font-family: Arial, sans-serif;
-      background-color: transparent;
+      background-color: #111;
       color: #fff;
     }
     #ui-container {
@@ -62,8 +62,9 @@
       padding-top: 8px;
     }
   </style>
-  <!-- Three.js & WebXR Loaders -->
+  <!-- Three.js Libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/ARButton.js"></script>
 </head>
@@ -105,16 +106,14 @@
     </div>
 
     <div class="instructions">
-      • <b>Click 'START AR':</b> Headset turns on Passthrough.<br>
-      • <b>Trigger Pull:</b> Places the entry point of the corridor model at your controller's pointer.<br>
-      • Use buttons above to fine-tune alignment.
+      • <b>Desktop / Mobile:</b> Click and drag with mouse to orbit/preview 3D corridor.<br>
+      • <b>Meta Quest 3:</b> Click <b>START AR</b> below to launch Passthrough mode, then pull trigger to position entrance.
     </div>
   </div>
 
   <script>
-    let scene, camera, renderer, controller;
+    let scene, camera, renderer, controller, orbitControls;
     let currentModel = null;
-    let placementReticle;
     const loader = new THREE.GLTFLoader();
 
     init();
@@ -123,48 +122,60 @@
     function init() {
       // 1. Scene setup
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
+      scene.background = new THREE.Color(0x1a1a1a); // Dark background for Web 3D preview
+
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 3, 10);
 
       // 2. Lighting Setup
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
+      const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
       scene.add(ambientLight);
       const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-      dirLight.position.set(2, 5, 2);
+      dirLight.position.set(5, 10, 5);
       scene.add(dirLight);
 
-      // 3. WebGL Renderer with Alpha / Transparency Enabled for Passthrough
+      // 3. WebGL Renderer with Alpha Support
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setClearColor(0x000000, 0); // Essential for Passthrough visibility
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // 4. Create Placement Reticle (Floor Target Indicator)
-      const ringGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x4CAF50, side: THREE.DoubleSide });
-      placementReticle = new THREE.Mesh(ringGeo, ringMat);
-      placementReticle.visible = false;
-      scene.add(placementReticle);
+      // 4. Mouse Orbit Controls for Web Preview
+      orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+      orbitControls.enableDamping = true;
 
-      // 5. Enable WebXR AR Button (Configured for Meta Quest Passthrough)
+      // 5. Add WebXR AR Button (Passthrough Mode)
       const arButton = ARButton.createButton(renderer, {
-        optionalFeatures: ['dom-overlay', 'hit-test'],
+        optionalFeatures: ['dom-overlay'],
         domOverlay: { root: document.body }
       });
       document.body.appendChild(arButton);
 
+      // Detect when entering/exiting WebXR Mode
+      renderer.xr.addEventListener('sessionstart', () => {
+        scene.background = null; // Clear background to enable Quest Passthrough
+        document.body.style.backgroundColor = 'transparent';
+        orbitControls.enabled = false;
+      });
+
+      renderer.xr.addEventListener('sessionend', () => {
+        scene.background = new THREE.Color(0x1a1a1a); // Restore web dark background
+        document.body.style.backgroundColor = '#111';
+        orbitControls.enabled = true;
+      });
+
       // 6. Load Initial Model
       loadModel('design1.glb');
 
-      // Dropdown Listener
+      // Dropdown listener
       document.getElementById('model-select').addEventListener('change', function(e) {
         loadModel(e.target.value);
       });
 
-      // Controller Listener (Trigger Pull -> Fix Model at Entrance)
+      // Controller Listener (Fix model at entry point)
       controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onPlaceModel);
+      controller.addEventListener('select', onSelect);
       scene.add(controller);
 
       window.addEventListener('resize', onWindowResize);
@@ -177,38 +188,43 @@
         filename,
         (gltf) => {
           currentModel = gltf.scene;
-          
-          // Auto-center geometry so origin is at the entrance/base
+
+          // Compute Bounding Box & Scale appropriately
           const box = new THREE.Box3().setFromObject(currentModel);
           const center = box.getCenter(new THREE.Vector3());
-          currentModel.position.sub(center);
-          currentModel.position.y += (box.max.y - box.min.y) / 2; // Sit on floor
+          const size = box.getSize(new THREE.Vector3());
 
-          // Initial placement 2 meters ahead
-          currentModel.position.set(0, 0, -2);
+          // Center the geometry
+          currentModel.position.x = -center.x;
+          currentModel.position.z = -center.z - 2; // Move slightly forward
+          currentModel.position.y = -box.min.y;    // Sit on ground level
+
           scene.add(currentModel);
+
+          if (orbitControls) {
+            orbitControls.target.set(0, size.y / 2, -2);
+            orbitControls.update();
+          }
         },
         undefined,
-        (error) => console.error('Error loading GLB model:', error)
+        (error) => console.error('Error loading model:', error)
       );
     }
 
-    // Fix model entrance at controller position
-    function onPlaceModel() {
+    // Reposition model to controller aim point (in MR mode)
+    function onSelect() {
       if (currentModel && controller) {
-        // Obtain controller position & rotation in real space
-        const targetPosition = new THREE.Vector3();
-        const targetQuaternion = new THREE.Quaternion();
-        controller.getWorldPosition(targetPosition);
-        controller.getWorldQuaternion(targetQuaternion);
+        const targetPos = new THREE.Vector3();
+        const targetRot = new THREE.Quaternion();
+        controller.getWorldPosition(targetPos);
+        controller.getWorldQuaternion(targetRot);
 
-        // Snap model entrance to controller aim point
-        currentModel.position.copy(targetPosition);
-        currentModel.quaternion.copy(targetQuaternion);
+        currentModel.position.copy(targetPos);
+        currentModel.quaternion.copy(targetRot);
       }
     }
 
-    // Fine-Tuning Controls
+    // Fine-Tuning Helper Functions
     function rotateModel(deg) {
       if (currentModel) {
         currentModel.rotation.y += THREE.MathUtils.degToRad(deg);
@@ -246,14 +262,9 @@
     }
 
     function render() {
-      // Update placement reticle if controller is active
-      if (renderer.xr.isPresenting && controller) {
-        controller.getWorldPosition(placementReticle.position);
-        placementReticle.visible = true;
-      } else {
-        placementReticle.visible = false;
+      if (!renderer.xr.isPresenting) {
+        orbitControls.update();
       }
-
       renderer.render(scene, camera);
     }
   </script>
