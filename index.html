@@ -71,7 +71,6 @@
       border-top: 1px solid #444;
       padding-top: 8px;
     }
-    /* Universal Always-Visible Button */
     #custom-ar-button {
       position: absolute;
       bottom: 25px;
@@ -90,9 +89,10 @@
       box-shadow: 0 4px 15px rgba(0,0,0,0.6);
       transition: all 0.2s ease-in-out;
     }
-    #custom-ar-button:hover {
-      background: #4CAF50;
-      color: #000000;
+    #custom-ar-button:disabled {
+      border-color: #666;
+      color: #888;
+      cursor: not-allowed;
     }
   </style>
   <!-- Three.js Libraries -->
@@ -141,24 +141,24 @@
 
     <div class="instructions">
       • <b>Desktop:</b> Orbit 3D view with mouse.<br>
-      • <b>Meta Quest 3:</b> Open in Quest Browser and tap <b>START AR</b>.
+      • <b>Meta Quest 3:</b> Wait for "Loaded", then tap <b>START AR</b>.
     </div>
   </div>
 
-  <button id="custom-ar-button">START AR</button>
+  <button id="custom-ar-button" disabled>LOADING MODEL...</button>
 
   <script>
     let scene, camera, renderer, controller, orbitControls;
     let currentModel = null;
     let modelGroup = null;
     let xrSession = null;
+    let isModelReady = false;
     const loader = new THREE.GLTFLoader();
 
     init();
     animate();
 
     function init() {
-      // 1. Scene setup
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x1a1a1a);
 
@@ -168,34 +168,29 @@
       modelGroup = new THREE.Group();
       scene.add(modelGroup);
 
-      // 2. High-intensity ambient and directional lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
+      // Lighting optimized for XR performance
+      const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
       scene.add(ambientLight);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
       dirLight.position.set(5, 10, 5);
       scene.add(dirLight);
 
-      // 3. Renderer with WebXR enabled
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls for Desktop preview
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Button click logic for both Desktop and XR Web Browsers
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
-      // 6. XR Controller placement handler
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', onPlaceModel);
       scene.add(controller);
 
-      // 7. Load default model selection
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -207,11 +202,19 @@
     }
 
     async function onStartAR() {
+      if (!isModelReady) {
+        alert("Please wait until the model is fully loaded before starting AR.");
+        return;
+      }
+
       if ('xr' in navigator) {
         try {
           const supported = await navigator.xr.isSessionSupported('immersive-ar');
           if (supported) {
             if (!xrSession) {
+              // Pre-compile scene graphics before entering WebXR frame loop
+              renderer.compile(scene, camera);
+
               xrSession = await navigator.xr.requestSession('immersive-ar', {
                 optionalFeatures: ['dom-overlay'],
                 domOverlay: { root: document.body }
@@ -232,25 +235,29 @@
               });
             }
           } else {
-            alert("WebXR AR is not supported by this browser. Open this URL in the Meta Quest 3 Browser to use AR Passthrough.");
+            alert("WebXR AR not supported in this browser. Open in Meta Quest Browser.");
           }
         } catch (err) {
           console.error("XR Session Error:", err);
-          alert("Could not start AR mode: " + err.message);
+          alert("AR Initialization Error: " + err.message);
         }
       } else {
-        alert("WebXR is not available in standard desktop mode. Use Meta Quest Browser for Passthrough mode.");
+        alert("WebXR unavailable on standard desktop.");
       }
     }
 
     function loadModel(filename) {
       const statusEl = document.getElementById('status-msg');
+      const arBtn = document.getElementById('custom-ar-button');
+      
+      isModelReady = false;
+      arBtn.disabled = true;
+      arBtn.innerText = "LOADING MODEL...";
       statusEl.style.color = '#ff9800';
-      statusEl.innerText = 'Loading ' + filename + '...';
+      statusEl.innerText = 'Downloading ' + filename + '...';
 
       if (currentModel) modelGroup.remove(currentModel);
 
-      // Failsafe relative path constructor
       let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
       let targetUrl = baseUrl + filename;
 
@@ -259,9 +266,18 @@
         (gltf) => {
           currentModel = gltf.scene;
 
+          // GPU Optimization for Quest Browser
           currentModel.traverse((child) => {
-            if (child.isMesh && child.material) {
-              child.material.side = THREE.DoubleSide;
+            if (child.isMesh) {
+              child.frustumCulled = true;
+              if (child.material) {
+                child.material.side = THREE.DoubleSide;
+                // Cap texture filtering to prevent WebXR memory lockups
+                if (child.material.map) {
+                  child.material.map.generateMipmaps = true;
+                  child.material.map.minFilter = THREE.LinearMipmapLinearFilter;
+                }
+              }
             }
           });
 
@@ -279,8 +295,15 @@
             orbitControls.update();
           }
 
+          // Force scene compile so textures bind to WebGL memory immediately
+          renderer.compile(scene, camera);
+
           statusEl.style.color = '#4CAF50';
-          statusEl.innerText = 'Loaded: ' + filename;
+          statusEl.innerText = 'Ready: ' + filename;
+          
+          isModelReady = true;
+          arBtn.disabled = false;
+          arBtn.innerText = "START AR";
         },
         (xhr) => {
           if (xhr.lengthComputable) {
@@ -292,6 +315,7 @@
           console.error('GLB Load Error:', error);
           statusEl.style.color = '#f44336';
           statusEl.innerText = 'Error loading ' + filename;
+          arBtn.innerText = "LOAD ERROR";
         }
       );
     }
