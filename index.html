@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Studio Gallery MR - 5 Corridor Viewer</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background-color: #111;
+      color: #fff;
+    }
+    #ui-container {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      z-index: 100;
+      background: rgba(0, 0, 0, 0.85);
+      padding: 16px;
+      border-radius: 10px;
+      width: 280px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    h2 { margin: 0 0 10px 0; font-size: 18px; color: #4CAF50; }
+    label { font-size: 13px; font-weight: bold; }
+    select {
+      width: 100%;
+      padding: 8px;
+      margin-top: 4px;
+      margin-bottom: 12px;
+      border-radius: 5px;
+      border: 1px solid #555;
+      background: #222;
+      color: #fff;
+      font-size: 14px;
+    }
+    .control-group {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    button.btn {
+      flex: 1;
+      padding: 8px 4px;
+      background: #333;
+      color: white;
+      border: 1px solid #666;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button.btn:active { background: #4CAF50; }
+    .instructions {
+      font-size: 11px;
+      line-height: 1.4;
+      color: #bbb;
+      margin-top: 10px;
+      border-top: 1px solid #444;
+      padding-top: 8px;
+    }
+  </style>
+  <!-- Three.js & WebXR Loaders -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/webxr/ARButton.js"></script>
+</head>
+<body>
+
+  <div id="ui-container">
+    <h2>Gallery MR Fine-Tuning</h2>
+    
+    <label for="model-select">Select Corridor Design:</label>
+    <select id="model-select">
+      <option value="design1.glb">Corridor Design 1</option>
+      <option value="design2.glb">Corridor Design 2</option>
+      <option value="design3.glb">Corridor Design 3</option>
+      <option value="design4.glb">Corridor Design 4</option>
+      <option value="design5.glb">Corridor Design 5</option>
+    </select>
+
+    <label>Rotate Y-Axis:</label>
+    <div class="control-group">
+      <button class="btn" onclick="rotateModel(-15)">↺ -15°</button>
+      <button class="btn" onclick="rotateModel(-5)">↺ -5°</button>
+      <button class="btn" onclick="rotateModel(5)">↻ +5°</button>
+      <button class="btn" onclick="rotateModel(15)">↻ +15°</button>
+    </div>
+
+    <label>Height Adjustment (Y-Axis):</label>
+    <div class="control-group">
+      <button class="btn" onclick="moveHeight(-0.1)">▼ -10cm</button>
+      <button class="btn" onclick="moveHeight(-0.02)">▼ -2cm</button>
+      <button class="btn" onclick="moveHeight(0.02)">▲ +2cm</button>
+      <button class="btn" onclick="moveHeight(0.1)">▲ +10cm</button>
+    </div>
+
+    <label>Scale Calibration:</label>
+    <div class="control-group">
+      <button class="btn" onclick="adjustScale(0.95)">- 5%</button>
+      <button class="btn" onclick="resetTransforms()">Reset</button>
+      <button class="btn" onclick="adjustScale(1.05)">+ 5%</button>
+    </div>
+
+    <div class="instructions">
+      • <b>Trigger Pull:</b> Reposition model base.<br>
+      • Use buttons above to align virtual walls flush against physical walls.
+    </div>
+  </div>
+
+  <script>
+    let scene, camera, renderer, controller;
+    let currentModel = null;
+    const loader = new THREE.GLTFLoader();
+
+    init();
+    animate();
+
+    function init() {
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
+
+      // Lighting Setup
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+      scene.add(ambientLight);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      dirLight.position.set(2, 5, 2);
+      scene.add(dirLight);
+
+      // WebGL Renderer Setup
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      // Enable WebXR AR Passthrough
+      document.body.appendChild(ARButton.createButton(renderer, {
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: document.body }
+      }));
+
+      // Load Initial Model
+      loadModel('design1.glb');
+
+      // Dropdown listener
+      document.getElementById('model-select').addEventListener('change', function(e) {
+        loadModel(e.target.value);
+      });
+
+      // Controller setup
+      controller = renderer.xr.getController(0);
+      controller.addEventListener('select', onSelect);
+      scene.add(controller);
+
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    function loadModel(filename) {
+      if (currentModel) scene.remove(currentModel);
+
+      loader.load(
+        filename,
+        (gltf) => {
+          currentModel = gltf.scene;
+          resetTransforms();
+          scene.add(currentModel);
+        },
+        undefined,
+        (error) => console.error('Error loading GLB model:', error)
+      );
+    }
+
+    // Reposition model on trigger click
+    function onSelect() {
+      if (currentModel) {
+        currentModel.position.copy(controller.position);
+      }
+    }
+
+    // Controls
+    function rotateModel(deg) {
+      if (currentModel) {
+        currentModel.rotation.y += THREE.MathUtils.degToRad(deg);
+      }
+    }
+
+    function moveHeight(deltaY) {
+      if (currentModel) {
+        currentModel.position.y += deltaY;
+      }
+    }
+
+    function adjustScale(factor) {
+      if (currentModel) {
+        currentModel.scale.multiplyScalar(factor);
+      }
+    }
+
+    function resetTransforms() {
+      if (currentModel) {
+        currentModel.position.set(0, 0, -2);
+        currentModel.rotation.set(0, 0, 0);
+        currentModel.scale.set(1, 1, 1);
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      renderer.setAnimationLoop(render);
+    }
+
+    function render() {
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
