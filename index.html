@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio Gallery MR - 5 Corridor Viewer</title>
+  <title>Gallery MR Viewer</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
       font-family: Arial, sans-serif;
-      background-color: #111;
+      background-color: transparent;
       color: #fff;
     }
     #ui-container {
@@ -105,54 +105,66 @@
     </div>
 
     <div class="instructions">
-      • <b>Trigger Pull:</b> Reposition model base.<br>
-      • Use buttons above to align virtual walls flush against physical walls.
+      • <b>Click 'START AR':</b> Headset turns on Passthrough.<br>
+      • <b>Trigger Pull:</b> Places the entry point of the corridor model at your controller's pointer.<br>
+      • Use buttons above to fine-tune alignment.
     </div>
   </div>
 
   <script>
     let scene, camera, renderer, controller;
     let currentModel = null;
+    let placementReticle;
     const loader = new THREE.GLTFLoader();
 
     init();
     animate();
 
     function init() {
+      // 1. Scene setup
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 50);
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
 
-      // Lighting Setup
-      const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+      // 2. Lighting Setup
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
       scene.add(ambientLight);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
       dirLight.position.set(2, 5, 2);
       scene.add(dirLight);
 
-      // WebGL Renderer Setup
+      // 3. WebGL Renderer with Alpha / Transparency Enabled for Passthrough
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearColor(0x000000, 0); // Essential for Passthrough visibility
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // Enable WebXR AR Passthrough
-      document.body.appendChild(ARButton.createButton(renderer, {
-        optionalFeatures: ['dom-overlay'],
-        domOverlay: { root: document.body }
-      }));
+      // 4. Create Placement Reticle (Floor Target Indicator)
+      const ringGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x4CAF50, side: THREE.DoubleSide });
+      placementReticle = new THREE.Mesh(ringGeo, ringMat);
+      placementReticle.visible = false;
+      scene.add(placementReticle);
 
-      // Load Initial Model
+      // 5. Enable WebXR AR Button (Configured for Meta Quest Passthrough)
+      const arButton = ARButton.createButton(renderer, {
+        optionalFeatures: ['dom-overlay', 'hit-test'],
+        domOverlay: { root: document.body }
+      });
+      document.body.appendChild(arButton);
+
+      // 6. Load Initial Model
       loadModel('design1.glb');
 
-      // Dropdown listener
+      // Dropdown Listener
       document.getElementById('model-select').addEventListener('change', function(e) {
         loadModel(e.target.value);
       });
 
-      // Controller setup
+      // Controller Listener (Trigger Pull -> Fix Model at Entrance)
       controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onSelect);
+      controller.addEventListener('select', onPlaceModel);
       scene.add(controller);
 
       window.addEventListener('resize', onWindowResize);
@@ -165,7 +177,15 @@
         filename,
         (gltf) => {
           currentModel = gltf.scene;
-          resetTransforms();
+          
+          // Auto-center geometry so origin is at the entrance/base
+          const box = new THREE.Box3().setFromObject(currentModel);
+          const center = box.getCenter(new THREE.Vector3());
+          currentModel.position.sub(center);
+          currentModel.position.y += (box.max.y - box.min.y) / 2; // Sit on floor
+
+          // Initial placement 2 meters ahead
+          currentModel.position.set(0, 0, -2);
           scene.add(currentModel);
         },
         undefined,
@@ -173,14 +193,22 @@
       );
     }
 
-    // Reposition model on trigger click
-    function onSelect() {
-      if (currentModel) {
-        currentModel.position.copy(controller.position);
+    // Fix model entrance at controller position
+    function onPlaceModel() {
+      if (currentModel && controller) {
+        // Obtain controller position & rotation in real space
+        const targetPosition = new THREE.Vector3();
+        const targetQuaternion = new THREE.Quaternion();
+        controller.getWorldPosition(targetPosition);
+        controller.getWorldQuaternion(targetQuaternion);
+
+        // Snap model entrance to controller aim point
+        currentModel.position.copy(targetPosition);
+        currentModel.quaternion.copy(targetQuaternion);
       }
     }
 
-    // Controls
+    // Fine-Tuning Controls
     function rotateModel(deg) {
       if (currentModel) {
         currentModel.rotation.y += THREE.MathUtils.degToRad(deg);
@@ -218,6 +246,14 @@
     }
 
     function render() {
+      // Update placement reticle if controller is active
+      if (renderer.xr.isPresenting && controller) {
+        controller.getWorldPosition(placementReticle.position);
+        placementReticle.visible = true;
+      } else {
+        placementReticle.visible = false;
+      }
+
       renderer.render(scene, camera);
     }
   </script>
