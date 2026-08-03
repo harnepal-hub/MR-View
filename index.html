@@ -25,6 +25,7 @@
       border-radius: 10px;
       width: 280px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      pointer-events: auto; 
     }
     h2 { margin: 0 0 10px 0; font-size: 18px; color: #4CAF50; }
     label { font-size: 13px; font-weight: bold; }
@@ -88,6 +89,7 @@
       z-index: 9999;
       box-shadow: 0 4px 15px rgba(0,0,0,0.6);
       transition: all 0.2s ease-in-out;
+      pointer-events: auto;
     }
     #custom-ar-button:disabled {
       border-color: #666;
@@ -103,50 +105,53 @@
 </head>
 <body>
 
-  <div id="ui-container">
-    <h2>Gallery MR Fine-Tuning</h2>
-    
-    <label for="model-select">Select Corridor Design:</label>
-    <select id="model-select">
-      <option value="design1.glb">Corridor Design 1</option>
-      <option value="design2.glb" selected>Corridor Design 2</option>
-      <option value="design3.glb">Corridor Design 3</option>
-      <option value="design4.glb">Corridor Design 4</option>
-      <option value="design5.glb">Corridor Design 5</option>
-    </select>
+  <!-- Overlay UI Root -->
+  <div id="overlay-root">
+    <div id="ui-container">
+      <h2>Gallery MR Fine-Tuning</h2>
+      
+      <label for="model-select">Select Corridor Design:</label>
+      <select id="model-select">
+        <option value="design1.glb">Corridor Design 1</option>
+        <option value="design2.glb" selected>Corridor Design 2</option>
+        <option value="design3.glb">Corridor Design 3</option>
+        <option value="design4.glb">Corridor Design 4</option>
+        <option value="design5.glb">Corridor Design 5</option>
+      </select>
 
-    <div id="status-msg">Initializing...</div>
+      <div id="status-msg">Initializing...</div>
 
-    <label>Rotate Y-Axis:</label>
-    <div class="control-group">
-      <button class="btn" onclick="rotateModel(-15)">↺ -15°</button>
-      <button class="btn" onclick="rotateModel(-5)">↺ -5°</button>
-      <button class="btn" onclick="rotateModel(5)">↻ +5°</button>
-      <button class="btn" onclick="rotateModel(15)">↻ +15°</button>
+      <label>Rotate Y-Axis:</label>
+      <div class="control-group">
+        <button class="btn" onclick="rotateModel(-15)">↺ -15°</button>
+        <button class="btn" onclick="rotateModel(-5)">↺ -5°</button>
+        <button class="btn" onclick="rotateModel(5)">↻ +5°</button>
+        <button class="btn" onclick="rotateModel(15)">↻ +15°</button>
+      </div>
+
+      <label>Height Adjustment (Y-Axis):</label>
+      <div class="control-group">
+        <button class="btn" onclick="moveHeight(-0.1)">▼ -10cm</button>
+        <button class="btn" onclick="moveHeight(-0.02)">▼ -2cm</button>
+        <button class="btn" onclick="moveHeight(0.02)">▲ +2cm</button>
+        <button class="btn" onclick="moveHeight(0.1)">▲ +10cm</button>
+      </div>
+
+      <label>Scale Calibration:</label>
+      <div class="control-group">
+        <button class="btn" onclick="adjustScale(0.95)">- 5%</button>
+        <button class="btn" onclick="resetTransforms()">Reset</button>
+        <button class="btn" onclick="adjustScale(1.05)">+ 5%</button>
+      </div>
+
+      <div class="instructions">
+        • <b>Desktop:</b> Orbit 3D view with mouse.<br>
+        • <b>Meta Quest 3:</b> Tap <b>START AR</b> for Passthrough.
+      </div>
     </div>
 
-    <label>Height Adjustment (Y-Axis):</label>
-    <div class="control-group">
-      <button class="btn" onclick="moveHeight(-0.1)">▼ -10cm</button>
-      <button class="btn" onclick="moveHeight(-0.02)">▼ -2cm</button>
-      <button class="btn" onclick="moveHeight(0.02)">▲ +2cm</button>
-      <button class="btn" onclick="moveHeight(0.1)">▲ +10cm</button>
-    </div>
-
-    <label>Scale Calibration:</label>
-    <div class="control-group">
-      <button class="btn" onclick="adjustScale(0.95)">- 5%</button>
-      <button class="btn" onclick="resetTransforms()">Reset</button>
-      <button class="btn" onclick="adjustScale(1.05)">+ 5%</button>
-    </div>
-
-    <div class="instructions">
-      • <b>Desktop:</b> Orbit 3D view with mouse.<br>
-      • <b>Meta Quest 3:</b> Tap <b>START AR</b> for Passthrough.
-    </div>
+    <button id="custom-ar-button" disabled>LOADING MODEL...</button>
   </div>
-
-  <button id="custom-ar-button" disabled>LOADING MODEL...</button>
 
   <script>
     let scene, camera, renderer, controller, orbitControls;
@@ -162,7 +167,7 @@
     function init() {
       // 1. Scene Setup
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x1a1a1a);
+      scene.background = new THREE.Color(0x111111);
 
       camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
       camera.position.set(0, 1.6, 5);
@@ -170,26 +175,37 @@
       modelGroup = new THREE.Group();
       scene.add(modelGroup);
 
-      // 2. Optimized Ambient and Directional Lighting
-      const ambientLight = new THREE.AmbientLight(0xffffff, 2.5);
+      // 2. Soft, Architectural 3-Point Lighting (Prevents Over-Exposure)
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Reduced from 2.5 to prevent blowing out white materials
       scene.add(ambientLight);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      dirLight.position.set(5, 10, 5);
-      scene.add(dirLight);
 
-      // 3. WebGL Renderer with WebXR enabled
+      const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      mainLight.position.set(5, 10, 7);
+      scene.add(mainLight);
+
+      const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+      fillLight.position.set(-5, 5, -5);
+      scene.add(fillLight);
+
+      // 3. WebGL Renderer with Color Space Calibration
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // COLOR CORRECTION FOR REALISTIC TEXTURES
+      renderer.outputEncoding = THREE.sRGBEncoding; // Corrects gamma for glTF textures
+      renderer.toneMapping = THREE.ACESFilmicToneMapping; // Softens harsh highlights
+      renderer.toneMappingExposure = 1.0; // Controls overall brightness
+
       renderer.xr.enabled = true;
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls for Preview
+      // 4. Orbit Controls
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Button and Controller binding
+      // 5. Button and WebXR Session
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
@@ -197,7 +213,7 @@
       controller.addEventListener('select', onPlaceModel);
       scene.add(controller);
 
-      // 6. Model Select Listener
+      // 6. Initial Load
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -216,12 +232,11 @@
           const supported = await navigator.xr.isSessionSupported('immersive-ar');
           if (supported) {
             if (!xrSession) {
-              // Pre-compile scene graphics to prevent frame stalls
               renderer.compile(scene, camera);
 
               xrSession = await navigator.xr.requestSession('immersive-ar', {
-                optionalFeatures: ['dom-overlay', 'local-floor'],
-                domOverlay: { root: document.body }
+                optionalFeatures: ['local-floor', 'dom-overlay'],
+                domOverlay: { root: document.getElementById('overlay-root') }
               });
 
               renderer.xr.setSession(xrSession);
@@ -231,7 +246,6 @@
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
 
-              // Position the model 2 meters straight ahead at floor level on session start
               if (modelGroup) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
@@ -239,20 +253,18 @@
 
               xrSession.addEventListener('end', () => {
                 xrSession = null;
-                scene.background = new THREE.Color(0x1a1a1a);
+                scene.background = new THREE.Color(0x111111);
                 document.body.style.backgroundColor = '#111111';
                 document.getElementById('custom-ar-button').style.display = 'block';
               });
             }
           } else {
-            alert("WebXR AR mode is not supported by this browser. Open in Meta Quest Browser.");
+            alert("WebXR AR mode is not supported on this browser.");
           }
         } catch (err) {
           console.error("XR Session Error:", err);
-          alert("AR Session Initialization Error: " + err.message);
+          alert("AR Session Error: " + err.message);
         }
-      } else {
-        alert("WebXR is not available in standard desktop mode.");
       }
     }
 
@@ -276,13 +288,21 @@
         (gltf) => {
           currentModel = gltf.scene;
 
-          // 1. Optimize meshes and materials
+          // Process Materials for Proper Texture & Contrast Balancing
           currentModel.traverse((child) => {
             if (child.isMesh) {
               child.frustumCulled = true;
               if (child.material) {
                 child.material.side = THREE.DoubleSide;
+
+                // Adjust material tone parameters for realistic rendering
+                if (child.material.isMeshStandardMaterial || child.material.isMeshPhongMaterial) {
+                  child.material.roughness = Math.max(child.material.roughness || 0.5, 0.4);
+                  child.material.metalness = Math.min(child.material.metalness || 0.1, 0.3);
+                }
+
                 if (child.material.map) {
+                  child.material.map.encoding = THREE.sRGBEncoding; // Force texture gamma correction
                   child.material.map.generateMipmaps = true;
                   child.material.map.minFilter = THREE.LinearMipmapLinearFilter;
                 }
@@ -290,19 +310,16 @@
             }
           });
 
-          // 2. Measure raw bounds
+          // Measure and Auto-Scale Large SketchUp Model Units
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           
-          // 3. AUTO-FAILSAFE: Handle oversized SketchUp exports automatically
           const maxDimension = Math.max(size.x, size.y, size.z);
           if (maxDimension > 50) { 
-            const scaleFactor = 0.0254; // Convert inches to meters
+            const scaleFactor = 0.0254; // Inches to Meters conversion
             currentModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
-            console.warn(`Model auto-scaled down by ${scaleFactor} due to max dimension: ${maxDimension}`);
           }
 
-          // 4. Center geometry around origin
           box = new THREE.Box3().setFromObject(currentModel);
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
@@ -316,7 +333,6 @@
             orbitControls.update();
           }
 
-          // Compile shaders immediately into GPU memory
           renderer.compile(scene, camera);
 
           statusEl.style.color = '#4CAF50';
