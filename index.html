@@ -113,7 +113,7 @@
 </head>
 <body>
 
-  <!-- WebXR DOM Overlay Root Container -->
+  <!-- WebXR DOM Overlay Root -->
   <div id="overlay-root">
     <div id="ui-container">
       <h2>Gallery MR Studio</h2>
@@ -129,7 +129,7 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Lock & Position Controls</h3>
+      <h3>1. Lock & Position</h3>
       <div class="control-group">
         <button id="lock-btn" class="btn" onclick="toggleLockPosition()">🔒 Lock Position</button>
         <button class="btn" onclick="resetTransforms()">Reset</button>
@@ -157,23 +157,23 @@
         <button class="btn" onclick="adjustScale(1.05)">+ 5%</button>
       </div>
 
-      <h3>2. Add Media Frames</h3>
-      <label for="media-url">Image / Video Direct URL:</label>
-      <input type="text" id="media-url" placeholder="https://example.com/artwork.jpg">
+      <h3>2. Media Frames</h3>
+      <label for="media-url">Image / Video URL:</label>
+      <input type="text" id="media-url" placeholder="https://example.com/art.jpg">
       <div class="control-group">
         <button class="btn" onclick="addMediaFrame('image')">+ Add Image</button>
         <button class="btn" onclick="addMediaFrame('video')">+ Add Video</button>
       </div>
 
-      <h3>3. Real-World Measure Tool</h3>
+      <h3>3. Measure Tool</h3>
       <div class="control-group">
         <button id="measure-btn" class="btn" onclick="toggleMeasureTool()">📐 Start Measure</button>
         <button class="btn" onclick="clearMeasurements()">Clear</button>
       </div>
 
       <div class="instructions">
-        • <b>Lock Position:</b> Fixes 3D corridor so you can walk down it.<br>
-        • <b>Trigger Pull:</b> Repositions entrance (when unlocked) or sets measurement points.
+        • <b>Meta Quest 3:</b> Press <b>X / Y Button</b> on Left Controller to show/hide this Editing Panel in AR.<br>
+        • <b>Right Trigger:</b> Reposition entrance at floor level.
       </div>
     </div>
 
@@ -181,17 +181,20 @@
   </div>
 
   <script>
-    let scene, camera, renderer, controller, orbitControls;
+    let scene, camera, renderer, controllerRight, controllerLeft, orbitControls;
     let currentModel = null;
     let modelGroup = null;
     let xrSession = null;
     let isModelReady = false;
     let isLocked = false;
     
-    // Measurement Tool States
+    // Measurement Tool
     let isMeasuring = false;
     let measurePoints = [];
     let measureGroup = null;
+
+    // Previous Button State Tracker
+    let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
 
@@ -199,7 +202,7 @@
     animate();
 
     function init() {
-      // 1. Scene & Camera
+      // 1. Scene setup
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x111111);
 
@@ -212,7 +215,7 @@
       measureGroup = new THREE.Group();
       scene.add(measureGroup);
 
-      // 2. Balanced 3-Point Architectural Lighting
+      // 2. Soft 3-Point Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -224,7 +227,7 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // 3. Renderer with Gamma & Tone Mapping
+      // 3. WebGL Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -237,7 +240,7 @@
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls (Desktop)
+      // 4. Orbit Controls
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
@@ -245,11 +248,23 @@
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
-      controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onControllerSelect);
-      scene.add(controller);
+      // Right Controller (Aiming & Trigger Click)
+      controllerRight = renderer.xr.getController(0);
+      controllerRight.addEventListener('select', onControllerSelect);
+      scene.add(controllerRight);
 
-      // 6. Model Select Listener
+      // Left Controller
+      controllerLeft = renderer.xr.getController(1);
+      scene.add(controllerLeft);
+
+      // Keyboard Shortcut 'M' to toggle Menu on Desktop
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'm' || e.key === 'M') {
+          toggleUIVisibility();
+        }
+      });
+
+      // 6. Initial Load
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -282,6 +297,7 @@
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
 
+              // Position entrance 2 meters ahead on floor
               if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
@@ -292,6 +308,7 @@
                 scene.background = new THREE.Color(0x111111);
                 document.body.style.backgroundColor = '#111111';
                 document.getElementById('custom-ar-button').style.display = 'block';
+                document.getElementById('ui-container').style.display = 'block';
               });
             }
           } else {
@@ -301,6 +318,15 @@
           console.error("XR Session Error:", err);
           alert("AR Session Error: " + err.message);
         }
+      }
+    }
+
+    function toggleUIVisibility() {
+      const ui = document.getElementById('ui-container');
+      if (ui.style.display === 'none') {
+        ui.style.display = 'block';
+      } else {
+        ui.style.display = 'none';
       }
     }
 
@@ -357,6 +383,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
+          // Place origin at entrance floor level
           currentModel.position.set(-center.x, -box.min.y, -center.z);
           modelGroup.add(currentModel);
 
@@ -403,22 +430,42 @@
       }
     }
 
-    // Trigger Pull Controller Listener
     function onControllerSelect() {
       if (isMeasuring) {
         handleMeasurementPoint();
-      } else if (!isLocked && modelGroup && controller) {
+      } else if (!isLocked && modelGroup && controllerRight) {
         const targetPos = new THREE.Vector3();
         const targetRot = new THREE.Quaternion();
-        controller.getWorldPosition(targetPos);
-        controller.getWorldQuaternion(targetRot);
+        controllerRight.getWorldPosition(targetPos);
+        controllerRight.getWorldQuaternion(targetRot);
 
         modelGroup.position.copy(targetPos);
         modelGroup.quaternion.copy(targetRot);
       }
     }
 
-    // 2. Dynamic Image & Video Frame Additions
+    // Check Left Controller Buttons (X/Y) to toggle Menu in AR
+    function checkXRGamepadInputs() {
+      if (renderer.xr.isPresenting) {
+        const session = renderer.xr.getSession();
+        if (session) {
+          for (const source of session.inputSources) {
+            if (source.handedness === 'left' && source.gamepad) {
+              const buttons = source.gamepad.buttons;
+              // X Button (Button 4) or Y Button (Button 5)
+              const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
+              
+              if (btnPressed && !prevLeftBtnState) {
+                toggleUIVisibility(); // Toggle Overlay UI on X/Y press
+              }
+              prevLeftBtnState = btnPressed;
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Add Image / Video Frames
     function addMediaFrame(type) {
       const urlInput = document.getElementById('media-url').value.trim();
       if (!urlInput) {
@@ -448,8 +495,8 @@
 
       const frameMesh = new THREE.Mesh(planeGeo, planeMat);
 
-      if (renderer.xr.isPresenting && controller) {
-        controller.getWorldPosition(frameMesh.position);
+      if (renderer.xr.isPresenting && controllerRight) {
+        controllerRight.getWorldPosition(frameMesh.position);
       } else {
         frameMesh.position.set(0, 1.5, -1.5);
       }
@@ -474,7 +521,7 @@
 
     function handleMeasurementPoint() {
       const point = new THREE.Vector3();
-      controller.getWorldPosition(point);
+      controllerRight.getWorldPosition(point);
 
       const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
       const sphereMat = new THREE.MeshBasicMaterial({ color: 0xFFEB3B });
@@ -539,6 +586,8 @@
     }
 
     function render() {
+      checkXRGamepadInputs(); // Listen for Left Controller X/Y buttons
+
       if (!renderer.xr.isPresenting && orbitControls) {
         orbitControls.update();
       }
