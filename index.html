@@ -20,30 +20,34 @@
       top: 15px;
       left: 15px;
       z-index: 1000;
-      background: rgba(0, 0, 0, 0.85);
+      background: rgba(0, 0, 0, 0.88);
       padding: 16px;
       border-radius: 10px;
-      width: 280px;
+      width: 290px;
+      max-height: 90vh;
+      overflow-y: auto;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      pointer-events: auto; 
+      pointer-events: auto;
     }
-    h2 { margin: 0 0 10px 0; font-size: 18px; color: #4CAF50; }
-    label { font-size: 13px; font-weight: bold; }
-    select {
+    h2 { margin: 0 0 8px 0; font-size: 17px; color: #4CAF50; }
+    h3 { margin: 12px 0 6px 0; font-size: 13px; color: #81C784; border-bottom: 1px solid #333; padding-bottom: 4px; }
+    label { font-size: 12px; font-weight: bold; }
+    select, input[type="text"] {
       width: 100%;
-      padding: 8px;
+      padding: 6px;
       margin-top: 4px;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
       border-radius: 5px;
       border: 1px solid #555;
       background: #222;
       color: #fff;
-      font-size: 14px;
+      font-size: 12px;
+      box-sizing: border-box;
     }
     .control-group {
       display: flex;
       gap: 6px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
     button.btn {
       flex: 1;
@@ -52,25 +56,29 @@
       color: white;
       border: 1px solid #666;
       border-radius: 5px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: bold;
       cursor: pointer;
     }
     button.btn:active { background: #4CAF50; }
+    button.btn-active {
+      background: #4CAF50 !important;
+      color: #000 !important;
+    }
     #status-msg {
       font-size: 11px;
       color: #ff9800;
       margin-top: 4px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       word-break: break-all;
     }
     .instructions {
       font-size: 11px;
-      line-height: 1.4;
+      line-height: 1.3;
       color: #bbb;
-      margin-top: 10px;
+      margin-top: 8px;
       border-top: 1px solid #444;
-      padding-top: 8px;
+      padding-top: 6px;
     }
     #custom-ar-button {
       position: absolute;
@@ -105,10 +113,10 @@
 </head>
 <body>
 
-  <!-- Overlay UI Root -->
+  <!-- WebXR DOM Overlay Root Container -->
   <div id="overlay-root">
     <div id="ui-container">
-      <h2>Gallery MR Fine-Tuning</h2>
+      <h2>Gallery MR Studio</h2>
       
       <label for="model-select">Select Corridor Design:</label>
       <select id="model-select">
@@ -121,6 +129,12 @@
 
       <div id="status-msg">Initializing...</div>
 
+      <h3>1. Lock & Position Controls</h3>
+      <div class="control-group">
+        <button id="lock-btn" class="btn" onclick="toggleLockPosition()">🔒 Lock Position</button>
+        <button class="btn" onclick="resetTransforms()">Reset</button>
+      </div>
+
       <label>Rotate Y-Axis:</label>
       <div class="control-group">
         <button class="btn" onclick="rotateModel(-15)">↺ -15°</button>
@@ -129,7 +143,7 @@
         <button class="btn" onclick="rotateModel(15)">↻ +15°</button>
       </div>
 
-      <label>Height Adjustment (Y-Axis):</label>
+      <label>Height Adjustment:</label>
       <div class="control-group">
         <button class="btn" onclick="moveHeight(-0.1)">▼ -10cm</button>
         <button class="btn" onclick="moveHeight(-0.02)">▼ -2cm</button>
@@ -140,13 +154,26 @@
       <label>Scale Calibration:</label>
       <div class="control-group">
         <button class="btn" onclick="adjustScale(0.95)">- 5%</button>
-        <button class="btn" onclick="resetTransforms()">Reset</button>
         <button class="btn" onclick="adjustScale(1.05)">+ 5%</button>
       </div>
 
+      <h3>2. Add Media Frames</h3>
+      <label for="media-url">Image / Video Direct URL:</label>
+      <input type="text" id="media-url" placeholder="https://example.com/artwork.jpg">
+      <div class="control-group">
+        <button class="btn" onclick="addMediaFrame('image')">+ Add Image</button>
+        <button class="btn" onclick="addMediaFrame('video')">+ Add Video</button>
+      </div>
+
+      <h3>3. Real-World Measure Tool</h3>
+      <div class="control-group">
+        <button id="measure-btn" class="btn" onclick="toggleMeasureTool()">📐 Start Measure</button>
+        <button class="btn" onclick="clearMeasurements()">Clear</button>
+      </div>
+
       <div class="instructions">
-        • <b>Desktop:</b> Orbit 3D view with mouse.<br>
-        • <b>Meta Quest 3:</b> Tap <b>START AR</b> for Passthrough.
+        • <b>Lock Position:</b> Fixes 3D corridor so you can walk down it.<br>
+        • <b>Trigger Pull:</b> Repositions entrance (when unlocked) or sets measurement points.
       </div>
     </div>
 
@@ -159,13 +186,20 @@
     let modelGroup = null;
     let xrSession = null;
     let isModelReady = false;
+    let isLocked = false;
+    
+    // Measurement Tool States
+    let isMeasuring = false;
+    let measurePoints = [];
+    let measureGroup = null;
+
     const loader = new THREE.GLTFLoader();
 
     init();
     animate();
 
     function init() {
-      // 1. Scene Setup
+      // 1. Scene & Camera
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x111111);
 
@@ -175,11 +209,14 @@
       modelGroup = new THREE.Group();
       scene.add(modelGroup);
 
-      // 2. Soft, Architectural 3-Point Lighting (Prevents Over-Exposure)
-      const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Reduced from 2.5 to prevent blowing out white materials
+      measureGroup = new THREE.Group();
+      scene.add(measureGroup);
+
+      // 2. Balanced 3-Point Architectural Lighting
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
-      const mainLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
       mainLight.position.set(5, 10, 7);
       scene.add(mainLight);
 
@@ -187,33 +224,32 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // 3. WebGL Renderer with Color Space Calibration
+      // 3. Renderer with Gamma & Tone Mapping
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
 
-      // COLOR CORRECTION FOR REALISTIC TEXTURES
-      renderer.outputEncoding = THREE.sRGBEncoding; // Corrects gamma for glTF textures
-      renderer.toneMapping = THREE.ACESFilmicToneMapping; // Softens harsh highlights
-      renderer.toneMappingExposure = 1.0; // Controls overall brightness
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
 
       renderer.xr.enabled = true;
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls
+      // 4. Orbit Controls (Desktop)
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Button and WebXR Session
+      // 5. Button Listeners
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
       controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onPlaceModel);
+      controller.addEventListener('select', onControllerSelect);
       scene.add(controller);
 
-      // 6. Initial Load
+      // 6. Model Select Listener
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -246,7 +282,7 @@
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
 
-              if (modelGroup) {
+              if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
               }
@@ -259,7 +295,7 @@
               });
             }
           } else {
-            alert("WebXR AR mode is not supported on this browser.");
+            alert("WebXR AR mode is not supported by this browser.");
           }
         } catch (err) {
           console.error("XR Session Error:", err);
@@ -288,21 +324,19 @@
         (gltf) => {
           currentModel = gltf.scene;
 
-          // Process Materials for Proper Texture & Contrast Balancing
           currentModel.traverse((child) => {
             if (child.isMesh) {
               child.frustumCulled = true;
               if (child.material) {
                 child.material.side = THREE.DoubleSide;
 
-                // Adjust material tone parameters for realistic rendering
                 if (child.material.isMeshStandardMaterial || child.material.isMeshPhongMaterial) {
                   child.material.roughness = Math.max(child.material.roughness || 0.5, 0.4);
-                  child.material.metalness = Math.min(child.material.metalness || 0.1, 0.3);
+                  child.material.metalness = Math.min(child.material.metalness || 0.1, 0.2);
                 }
 
                 if (child.material.map) {
-                  child.material.map.encoding = THREE.sRGBEncoding; // Force texture gamma correction
+                  child.material.map.encoding = THREE.sRGBEncoding;
                   child.material.map.generateMipmaps = true;
                   child.material.map.minFilter = THREE.LinearMipmapLinearFilter;
                 }
@@ -310,7 +344,6 @@
             }
           });
 
-          // Measure and Auto-Scale Large SketchUp Model Units
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           
@@ -357,8 +390,24 @@
       );
     }
 
-    function onPlaceModel() {
-      if (modelGroup && controller) {
+    // 1. Lock / Unlock Position
+    function toggleLockPosition() {
+      isLocked = !isLocked;
+      const btn = document.getElementById('lock-btn');
+      if (isLocked) {
+        btn.innerText = "🔓 Position Locked";
+        btn.classList.add('btn-active');
+      } else {
+        btn.innerText = "🔒 Lock Position";
+        btn.classList.remove('btn-active');
+      }
+    }
+
+    // Trigger Pull Controller Listener
+    function onControllerSelect() {
+      if (isMeasuring) {
+        handleMeasurementPoint();
+      } else if (!isLocked && modelGroup && controller) {
         const targetPos = new THREE.Vector3();
         const targetRot = new THREE.Quaternion();
         controller.getWorldPosition(targetPos);
@@ -369,6 +418,96 @@
       }
     }
 
+    // 2. Dynamic Image & Video Frame Additions
+    function addMediaFrame(type) {
+      const urlInput = document.getElementById('media-url').value.trim();
+      if (!urlInput) {
+        alert("Please paste a valid image or video URL.");
+        return;
+      }
+
+      const planeGeo = new THREE.PlaneGeometry(1.2, 0.8);
+      let planeMat;
+
+      if (type === 'image') {
+        const texture = new THREE.TextureLoader().load(urlInput);
+        texture.encoding = THREE.sRGBEncoding;
+        planeMat = new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide });
+      } else if (type === 'video') {
+        const video = document.createElement('video');
+        video.src = urlInput;
+        video.crossOrigin = 'anonymous';
+        video.loop = true;
+        video.muted = true;
+        video.play();
+
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.encoding = THREE.sRGBEncoding;
+        planeMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+      }
+
+      const frameMesh = new THREE.Mesh(planeGeo, planeMat);
+
+      if (renderer.xr.isPresenting && controller) {
+        controller.getWorldPosition(frameMesh.position);
+      } else {
+        frameMesh.position.set(0, 1.5, -1.5);
+      }
+
+      scene.add(frameMesh);
+      alert(`${type.toUpperCase()} frame created!`);
+    }
+
+    // 3. Real-World Measurement Tool
+    function toggleMeasureTool() {
+      isMeasuring = !isMeasuring;
+      const btn = document.getElementById('measure-btn');
+      if (isMeasuring) {
+        btn.innerText = "📏 Measuring...";
+        btn.classList.add('btn-active');
+        measurePoints = [];
+      } else {
+        btn.innerText = "📐 Start Measure";
+        btn.classList.remove('btn-active');
+      }
+    }
+
+    function handleMeasurementPoint() {
+      const point = new THREE.Vector3();
+      controller.getWorldPosition(point);
+
+      const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
+      const sphereMat = new THREE.MeshBasicMaterial({ color: 0xFFEB3B });
+      const marker = new THREE.Mesh(sphereGeo, sphereMat);
+      marker.position.copy(point);
+      measureGroup.add(marker);
+
+      measurePoints.push(point);
+
+      if (measurePoints.length === 2) {
+        const distance = measurePoints[0].distanceTo(measurePoints[1]);
+        const distMeters = distance.toFixed(2);
+        const distFeet = (distance * 3.28084).toFixed(2);
+
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xFFEB3B, linewidth: 3 });
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(measurePoints);
+        const line = new THREE.Line(lineGeo, lineMat);
+        measureGroup.add(line);
+
+        alert(`Measured Distance: ${distMeters} m (${distFeet} ft)`);
+        
+        measurePoints = [];
+      }
+    }
+
+    function clearMeasurements() {
+      while (measureGroup.children.length > 0) {
+        measureGroup.remove(measureGroup.children[0]);
+      }
+      measurePoints = [];
+    }
+
+    // Fine-Tuning Controls
     function rotateModel(deg) {
       if (modelGroup) modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
     }
