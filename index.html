@@ -15,14 +15,14 @@
       background-color: #111111;
       color: #ffffff;
     }
-    /* WebXR Overlay Root - Must cover 100% of screen */
+    /* WebXR Overlay Root - Full Screen Boundary */
     #overlay-root {
       position: absolute;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none; /* Allows pointer pass-through to 3D scene */
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
       z-index: 9999;
     }
     #ui-container {
@@ -32,11 +32,11 @@
       background: rgba(0, 0, 0, 0.88);
       padding: 16px;
       border-radius: 10px;
-      width: 290px;
+      width: 300px;
       max-height: 85vh;
       overflow-y: auto;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      pointer-events: auto; /* Re-enables touch/click on UI panel */
+      pointer-events: auto; /* Re-enables touch/click on UI elements */
       display: block;
     }
     h2 { margin: 0 0 8px 0; font-size: 17px; color: #4CAF50; }
@@ -139,18 +139,26 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Lock & Position Controls</h3>
+      <h3>1. Alignment & Lock Controls</h3>
       <div class="control-group">
+        <button class="btn" onclick="alignEntranceToFloor(event)">📍 Align Entrance Here</button>
         <button id="lock-btn" class="btn" onclick="toggleLockPosition(event)">🔒 Lock Position</button>
-        <button class="btn" onclick="snapEntranceToController(event)">📍 Place Entrance Here</button>
       </div>
 
-      <label>Rotate Y-Axis:</label>
+      <label>Rotate Y-Axis (Yaw / Horizontal):</label>
       <div class="control-group">
-        <button class="btn" onclick="rotateModel(-15, event)">↺ -15°</button>
-        <button class="btn" onclick="rotateModel(-5, event)">↺ -5°</button>
-        <button class="btn" onclick="rotateModel(5, event)">↻ +5°</button>
-        <button class="btn" onclick="rotateModel(15, event)">↻ +15°</button>
+        <button class="btn" onclick="rotateModelY(-15, event)">↺ -15°</button>
+        <button class="btn" onclick="rotateModelY(-5, event)">↺ -5°</button>
+        <button class="btn" onclick="rotateModelY(5, event)">↻ +5°</button>
+        <button class="btn" onclick="rotateModelY(15, event)">↻ +15°</button>
+      </div>
+
+      <label>Rotate X-Axis (Pitch / Tilt):</label>
+      <div class="control-group">
+        <button class="btn" onclick="rotateModelX(-15, event)">↺ -15°</button>
+        <button class="btn" onclick="rotateModelX(-5, event)">↺ -5°</button>
+        <button class="btn" onclick="rotateModelX(5, event)">↻ +5°</button>
+        <button class="btn" onclick="rotateModelX(15, event)">↻ +15°</button>
       </div>
 
       <label>Height Adjustment:</label>
@@ -184,8 +192,8 @@
 
       <div class="instructions">
         • <b>Left Controller X / Y Button:</b> Show/Hide this Menu in AR.<br>
-        • <b>Desktop Key 'M':</b> Toggle Menu visibility.<br>
-        • <b>Lock Position:</b> Fixes model so you can walk through.
+        • <b>Desktop 'M' Key:</b> Toggle Menu on PC.<br>
+        • <b>Align Entrance:</b> Aim at physical entrance floor and click.
       </div>
     </div>
 
@@ -205,7 +213,7 @@
     let measurePoints = [];
     let measureGroup = null;
 
-    // Gamepad button state tracker
+    // Track Gamepad Button States (Left Controller X/Y buttons)
     let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
@@ -214,7 +222,7 @@
     animate();
 
     function init() {
-      // 1. Scene & Camera
+      // 1. Scene & Camera Setup
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x111111);
 
@@ -227,7 +235,7 @@
       measureGroup = new THREE.Group();
       scene.add(measureGroup);
 
-      // 2. Soft 3-Point Lighting
+      // 2. Soft Architectural Lighting (Prevents Washout)
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -239,7 +247,7 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // 3. Renderer
+      // 3. WebGL Renderer with sRGB & Filmic Tone Mapping
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -252,20 +260,19 @@
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls (Desktop)
+      // 4. Orbit Controls (Desktop View)
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Button Listeners
+      // 5. Button & Controller Setup
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
-      // Right Controller (Pointers)
+      // Controller 0 & 1 Setup
       controllerRight = renderer.xr.getController(0);
       controllerRight.addEventListener('select', onControllerSelect);
       scene.add(controllerRight);
 
-      // Left Controller
       controllerLeft = renderer.xr.getController(1);
       scene.add(controllerLeft);
 
@@ -298,7 +305,7 @@
             if (!xrSession) {
               renderer.compile(scene, camera);
 
-              // Request WebXR Session with DOM Overlay
+              // WebXR Session with DOM Overlay
               xrSession = await navigator.xr.requestSession('immersive-ar', {
                 optionalFeatures: ['local-floor', 'dom-overlay'],
                 domOverlay: { root: document.getElementById('overlay-root') }
@@ -311,9 +318,10 @@
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
 
-              // Ensure UI is visible when starting AR
+              // Ensure UI container remains visible when launching AR
               document.getElementById('ui-container').style.display = 'block';
 
+              // Spawn entrance 2 meters ahead on floor level
               if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
@@ -386,12 +394,13 @@
             }
           });
 
+          // Auto-scale check for oversized model units
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           
           const maxDimension = Math.max(size.x, size.y, size.z);
           if (maxDimension > 50) { 
-            const scaleFactor = 0.0254; // Inches to Meters conversion
+            const scaleFactor = 0.0254; // Inches to Meters
             currentModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
           }
 
@@ -399,6 +408,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
+          // Set entrance origin at floor level
           currentModel.position.set(-center.x, -box.min.y, -center.z);
           modelGroup.add(currentModel);
 
@@ -446,7 +456,7 @@
       }
     }
 
-    function snapEntranceToController(e) {
+    function alignEntranceToFloor(e) {
       if (e) e.stopPropagation();
       if (modelGroup && controllerRight) {
         const targetPos = new THREE.Vector3();
@@ -454,19 +464,20 @@
         controllerRight.getWorldPosition(targetPos);
         controllerRight.getWorldQuaternion(targetRot);
 
+        // Snap model entrance to controller aim point on floor
         modelGroup.position.copy(targetPos);
         modelGroup.quaternion.copy(targetRot);
       }
     }
 
-    // Trigger Pull Handler (Only fires for measurements when measuring)
+    // Trigger Press Listener
     function onControllerSelect() {
       if (isMeasuring) {
         handleMeasurementPoint();
       }
     }
 
-    // Check Left Controller X / Y Buttons
+    // Gamepad Polling Loop (Left Controller X/Y buttons to toggle menu)
     function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
         const session = renderer.xr.getSession();
@@ -474,11 +485,11 @@
           for (const source of session.inputSources) {
             if (source.handedness === 'left' && source.gamepad) {
               const buttons = source.gamepad.buttons;
-              // X (Button 4) or Y (Button 5)
+              // Button 4 (X) or Button 5 (Y)
               const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
               
               if (btnPressed && !prevLeftBtnState) {
-                toggleUIVisibility();
+                toggleUIVisibility(); // Toggle overlay menu visibility in VR
               }
               prevLeftBtnState = btnPressed;
             }
@@ -579,10 +590,15 @@
       measurePoints = [];
     }
 
-    // Fine-Tuning Controls
-    function rotateModel(deg, e) {
+    // Fine-Tuning Transformation Controls
+    function rotateModelY(deg, e) {
       if (e) e.stopPropagation();
       if (modelGroup) modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
+    }
+
+    function rotateModelX(deg, e) {
+      if (e) e.stopPropagation();
+      if (modelGroup) modelGroup.rotation.x += THREE.MathUtils.degToRad(deg);
     }
 
     function moveHeight(deltaY, e) {
@@ -615,7 +631,7 @@
     }
 
     function render() {
-      checkXRGamepadInputs(); // Listens for Left Controller X / Y button presses in AR
+      checkXRGamepadInputs(); // Active Gamepad Polling Loop for Left Controller X / Y buttons
 
       if (!renderer.xr.isPresenting && orbitControls) {
         orbitControls.update();
