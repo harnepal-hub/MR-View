@@ -15,19 +15,29 @@
       background-color: #111111;
       color: #ffffff;
     }
+    /* WebXR Overlay Root - Must cover 100% of screen */
+    #overlay-root {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none; /* Allows pointer pass-through to 3D scene */
+      z-index: 9999;
+    }
     #ui-container {
       position: absolute;
       top: 15px;
       left: 15px;
-      z-index: 1000;
       background: rgba(0, 0, 0, 0.88);
       padding: 16px;
       border-radius: 10px;
       width: 290px;
-      max-height: 90vh;
+      max-height: 85vh;
       overflow-y: auto;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-      pointer-events: auto;
+      pointer-events: auto; /* Re-enables touch/click on UI panel */
+      display: block;
     }
     h2 { margin: 0 0 8px 0; font-size: 17px; color: #4CAF50; }
     h3 { margin: 12px 0 6px 0; font-size: 13px; color: #81C784; border-bottom: 1px solid #333; padding-bottom: 4px; }
@@ -94,7 +104,7 @@
       font-size: 15px;
       letter-spacing: 0.5px;
       cursor: pointer;
-      z-index: 9999;
+      z-index: 10000;
       box-shadow: 0 4px 15px rgba(0,0,0,0.6);
       transition: all 0.2s ease-in-out;
       pointer-events: auto;
@@ -113,7 +123,7 @@
 </head>
 <body>
 
-  <!-- WebXR DOM Overlay Root -->
+  <!-- Fullscreen WebXR DOM Overlay Root -->
   <div id="overlay-root">
     <div id="ui-container">
       <h2>Gallery MR Studio</h2>
@@ -129,51 +139,53 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Lock & Position</h3>
+      <h3>1. Lock & Position Controls</h3>
       <div class="control-group">
-        <button id="lock-btn" class="btn" onclick="toggleLockPosition()">🔒 Lock Position</button>
-        <button class="btn" onclick="resetTransforms()">Reset</button>
+        <button id="lock-btn" class="btn" onclick="toggleLockPosition(event)">🔒 Lock Position</button>
+        <button class="btn" onclick="snapEntranceToController(event)">📍 Place Entrance Here</button>
       </div>
 
       <label>Rotate Y-Axis:</label>
       <div class="control-group">
-        <button class="btn" onclick="rotateModel(-15)">↺ -15°</button>
-        <button class="btn" onclick="rotateModel(-5)">↺ -5°</button>
-        <button class="btn" onclick="rotateModel(5)">↻ +5°</button>
-        <button class="btn" onclick="rotateModel(15)">↻ +15°</button>
+        <button class="btn" onclick="rotateModel(-15, event)">↺ -15°</button>
+        <button class="btn" onclick="rotateModel(-5, event)">↺ -5°</button>
+        <button class="btn" onclick="rotateModel(5, event)">↻ +5°</button>
+        <button class="btn" onclick="rotateModel(15, event)">↻ +15°</button>
       </div>
 
       <label>Height Adjustment:</label>
       <div class="control-group">
-        <button class="btn" onclick="moveHeight(-0.1)">▼ -10cm</button>
-        <button class="btn" onclick="moveHeight(-0.02)">▼ -2cm</button>
-        <button class="btn" onclick="moveHeight(0.02)">▲ +2cm</button>
-        <button class="btn" onclick="moveHeight(0.1)">▲ +10cm</button>
+        <button class="btn" onclick="moveHeight(-0.1, event)">▼ -10cm</button>
+        <button class="btn" onclick="moveHeight(-0.02, event)">▼ -2cm</button>
+        <button class="btn" onclick="moveHeight(0.02, event)">▲ +2cm</button>
+        <button class="btn" onclick="moveHeight(0.1, event)">▲ +10cm</button>
       </div>
 
       <label>Scale Calibration:</label>
       <div class="control-group">
-        <button class="btn" onclick="adjustScale(0.95)">- 5%</button>
-        <button class="btn" onclick="adjustScale(1.05)">+ 5%</button>
+        <button class="btn" onclick="adjustScale(0.95, event)">- 5%</button>
+        <button class="btn" onclick="resetTransforms(event)">Reset</button>
+        <button class="btn" onclick="adjustScale(1.05, event)">+ 5%</button>
       </div>
 
-      <h3>2. Media Frames</h3>
+      <h3>2. Add Media Frames</h3>
       <label for="media-url">Image / Video URL:</label>
       <input type="text" id="media-url" placeholder="https://example.com/art.jpg">
       <div class="control-group">
-        <button class="btn" onclick="addMediaFrame('image')">+ Add Image</button>
-        <button class="btn" onclick="addMediaFrame('video')">+ Add Video</button>
+        <button class="btn" onclick="addMediaFrame('image', event)">+ Add Image</button>
+        <button class="btn" onclick="addMediaFrame('video', event)">+ Add Video</button>
       </div>
 
-      <h3>3. Measure Tool</h3>
+      <h3>3. Real-World Measure Tool</h3>
       <div class="control-group">
-        <button id="measure-btn" class="btn" onclick="toggleMeasureTool()">📐 Start Measure</button>
-        <button class="btn" onclick="clearMeasurements()">Clear</button>
+        <button id="measure-btn" class="btn" onclick="toggleMeasureTool(event)">📐 Start Measure</button>
+        <button class="btn" onclick="clearMeasurements(event)">Clear</button>
       </div>
 
       <div class="instructions">
-        • <b>Meta Quest 3:</b> Press <b>X / Y Button</b> on Left Controller to show/hide this Editing Panel in AR.<br>
-        • <b>Right Trigger:</b> Reposition entrance at floor level.
+        • <b>Left Controller X / Y Button:</b> Show/Hide this Menu in AR.<br>
+        • <b>Desktop Key 'M':</b> Toggle Menu visibility.<br>
+        • <b>Lock Position:</b> Fixes model so you can walk through.
       </div>
     </div>
 
@@ -193,7 +205,7 @@
     let measurePoints = [];
     let measureGroup = null;
 
-    // Previous Button State Tracker
+    // Gamepad button state tracker
     let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
@@ -202,7 +214,7 @@
     animate();
 
     function init() {
-      // 1. Scene setup
+      // 1. Scene & Camera
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x111111);
 
@@ -227,7 +239,7 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // 3. WebGL Renderer
+      // 3. Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -240,7 +252,7 @@
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls
+      // 4. Orbit Controls (Desktop)
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
@@ -248,7 +260,7 @@
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
-      // Right Controller (Aiming & Trigger Click)
+      // Right Controller (Pointers)
       controllerRight = renderer.xr.getController(0);
       controllerRight.addEventListener('select', onControllerSelect);
       scene.add(controllerRight);
@@ -264,7 +276,7 @@
         }
       });
 
-      // 6. Initial Load
+      // 6. Model Select Listener
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -275,7 +287,8 @@
       window.addEventListener('resize', onWindowResize);
     }
 
-    async function onStartAR() {
+    async function onStartAR(e) {
+      if (e) e.stopPropagation();
       if (!isModelReady) return;
 
       if ('xr' in navigator) {
@@ -285,6 +298,7 @@
             if (!xrSession) {
               renderer.compile(scene, camera);
 
+              // Request WebXR Session with DOM Overlay
               xrSession = await navigator.xr.requestSession('immersive-ar', {
                 optionalFeatures: ['local-floor', 'dom-overlay'],
                 domOverlay: { root: document.getElementById('overlay-root') }
@@ -297,7 +311,9 @@
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
 
-              // Position entrance 2 meters ahead on floor
+              // Ensure UI is visible when starting AR
+              document.getElementById('ui-container').style.display = 'block';
+
               if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
@@ -383,7 +399,6 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // Place origin at entrance floor level
           currentModel.position.set(-center.x, -box.min.y, -center.z);
           modelGroup.add(currentModel);
 
@@ -417,8 +432,9 @@
       );
     }
 
-    // 1. Lock / Unlock Position
-    function toggleLockPosition() {
+    // 1. Lock/Unlock Spatial Position
+    function toggleLockPosition(e) {
+      if (e) e.stopPropagation();
       isLocked = !isLocked;
       const btn = document.getElementById('lock-btn');
       if (isLocked) {
@@ -430,10 +446,9 @@
       }
     }
 
-    function onControllerSelect() {
-      if (isMeasuring) {
-        handleMeasurementPoint();
-      } else if (!isLocked && modelGroup && controllerRight) {
+    function snapEntranceToController(e) {
+      if (e) e.stopPropagation();
+      if (modelGroup && controllerRight) {
         const targetPos = new THREE.Vector3();
         const targetRot = new THREE.Quaternion();
         controllerRight.getWorldPosition(targetPos);
@@ -444,7 +459,14 @@
       }
     }
 
-    // Check Left Controller Buttons (X/Y) to toggle Menu in AR
+    // Trigger Pull Handler (Only fires for measurements when measuring)
+    function onControllerSelect() {
+      if (isMeasuring) {
+        handleMeasurementPoint();
+      }
+    }
+
+    // Check Left Controller X / Y Buttons
     function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
         const session = renderer.xr.getSession();
@@ -452,11 +474,11 @@
           for (const source of session.inputSources) {
             if (source.handedness === 'left' && source.gamepad) {
               const buttons = source.gamepad.buttons;
-              // X Button (Button 4) or Y Button (Button 5)
+              // X (Button 4) or Y (Button 5)
               const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
               
               if (btnPressed && !prevLeftBtnState) {
-                toggleUIVisibility(); // Toggle Overlay UI on X/Y press
+                toggleUIVisibility();
               }
               prevLeftBtnState = btnPressed;
             }
@@ -465,8 +487,9 @@
       }
     }
 
-    // 2. Add Image / Video Frames
-    function addMediaFrame(type) {
+    // 2. Add Image or Video Frame
+    function addMediaFrame(type, e) {
+      if (e) e.stopPropagation();
       const urlInput = document.getElementById('media-url').value.trim();
       if (!urlInput) {
         alert("Please paste a valid image or video URL.");
@@ -506,7 +529,8 @@
     }
 
     // 3. Real-World Measurement Tool
-    function toggleMeasureTool() {
+    function toggleMeasureTool(e) {
+      if (e) e.stopPropagation();
       isMeasuring = !isMeasuring;
       const btn = document.getElementById('measure-btn');
       if (isMeasuring) {
@@ -547,7 +571,8 @@
       }
     }
 
-    function clearMeasurements() {
+    function clearMeasurements(e) {
+      if (e) e.stopPropagation();
       while (measureGroup.children.length > 0) {
         measureGroup.remove(measureGroup.children[0]);
       }
@@ -555,19 +580,23 @@
     }
 
     // Fine-Tuning Controls
-    function rotateModel(deg) {
+    function rotateModel(deg, e) {
+      if (e) e.stopPropagation();
       if (modelGroup) modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
     }
 
-    function moveHeight(deltaY) {
+    function moveHeight(deltaY, e) {
+      if (e) e.stopPropagation();
       if (modelGroup) modelGroup.position.y += deltaY;
     }
 
-    function adjustScale(factor) {
+    function adjustScale(factor, e) {
+      if (e) e.stopPropagation();
       if (modelGroup) modelGroup.scale.multiplyScalar(factor);
     }
 
-    function resetTransforms() {
+    function resetTransforms(e) {
+      if (e) e.stopPropagation();
       if (modelGroup) {
         modelGroup.position.set(0, 0, -2);
         modelGroup.rotation.set(0, 0, 0);
@@ -586,7 +615,7 @@
     }
 
     function render() {
-      checkXRGamepadInputs(); // Listen for Left Controller X/Y buttons
+      checkXRGamepadInputs(); // Listens for Left Controller X / Y button presses in AR
 
       if (!renderer.xr.isPresenting && orbitControls) {
         orbitControls.update();
