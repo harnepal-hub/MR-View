@@ -15,22 +15,34 @@
       background-color: #111111;
       color: #ffffff;
     }
+    /* WebXR Overlay Root - Full Screen Boundary */
+    #overlay-root {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 9999;
+    }
     #ui-container {
       position: absolute;
       top: 15px;
       left: 15px;
-      z-index: 1000;
       background: rgba(0, 0, 0, 0.88);
       padding: 16px;
       border-radius: 10px;
-      width: 290px;
+      width: 300px;
       max-height: 85vh;
       overflow-y: auto;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      pointer-events: auto;
+      display: block;
     }
     h2 { margin: 0 0 8px 0; font-size: 17px; color: #4CAF50; }
+    h3 { margin: 12px 0 6px 0; font-size: 13px; color: #81C784; border-bottom: 1px solid #333; padding-bottom: 4px; }
     label { font-size: 12px; font-weight: bold; }
-    select {
+    select, input[type="text"] {
       width: 100%;
       padding: 6px;
       margin-top: 4px;
@@ -42,6 +54,27 @@
       font-size: 12px;
       box-sizing: border-box;
     }
+    .control-group {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    button.btn {
+      flex: 1;
+      padding: 8px 4px;
+      background: #333;
+      color: white;
+      border: 1px solid #666;
+      border-radius: 5px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button.btn:active { background: #4CAF50; }
+    button.btn-active {
+      background: #4CAF50 !important;
+      color: #000 !important;
+    }
     #status-msg {
       font-size: 11px;
       color: #ff9800;
@@ -51,7 +84,7 @@
     }
     .instructions {
       font-size: 11px;
-      line-height: 1.4;
+      line-height: 1.3;
       color: #bbb;
       margin-top: 8px;
       border-top: 1px solid #444;
@@ -73,6 +106,8 @@
       cursor: pointer;
       z-index: 10000;
       box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+      transition: all 0.2s ease-in-out;
+      pointer-events: auto;
     }
     #custom-ar-button:disabled {
       border-color: #666;
@@ -88,44 +123,104 @@
 </head>
 <body>
 
-  <div id="ui-container">
-    <h2>Gallery MR Studio</h2>
-    
-    <label for="model-select">Select Corridor Design:</label>
-    <select id="model-select">
-      <option value="design1.glb">Corridor Design 1</option>
-      <option value="design2.glb" selected>Corridor Design 2</option>
-      <option value="design3.glb">Corridor Design 3</option>
-      <option value="design4.glb">Corridor Design 4</option>
-      <option value="design5.glb">Corridor Design 5</option>
-    </select>
+  <!-- Fullscreen WebXR DOM Overlay Root -->
+  <div id="overlay-root">
+    <div id="ui-container">
+      <h2>Gallery MR Studio</h2>
+      
+      <label for="model-select">Select Corridor Design:</label>
+      <select id="model-select">
+        <option value="design1.glb">Corridor Design 1</option>
+        <option value="design2.glb" selected>Corridor Design 2</option>
+        <option value="design3.glb">Corridor Design 3</option>
+        <option value="design4.glb">Corridor Design 4</option>
+        <option value="design5.glb">Corridor Design 5</option>
+      </select>
 
-    <div id="status-msg">Initializing...</div>
+      <div id="status-msg">Initializing...</div>
 
-    <div class="instructions">
-      <b>Quest 3 AR Corner-Snapping Guide:</b><br>
-      1. Point controller at real floor/corner (Green Reticle appears).<br>
-      2. <b>Pull Right Trigger</b> to snap & lock entrance.<br>
-      3. <b>Right Thumbstick Left/Right:</b> Rotate model.<br>
-      4. <b>Right Thumbstick Up/Down:</b> Scale model.<br>
-      5. <b>Left Controller Grip Squeeze:</b> Unlock & Move.
+      <h3>1. Reposition & Visibility</h3>
+      <div class="control-group">
+        <button id="ghost-btn" class="btn" onclick="toggleGhostMode(event)">👻 Ghost Mode (30%)</button>
+        <button id="lock-btn" class="btn" onclick="toggleLockPosition(event)">🔒 Lock Position</button>
+      </div>
+
+      <div class="control-group">
+        <button class="btn" onclick="alignEntranceToFloor(event)">📍 Align Entrance Here</button>
+        <button class="btn" onclick="resetTransforms(event)">Reset Position</button>
+      </div>
+
+      <label>Rotate Y-Axis (Yaw / Horizontal):</label>
+      <div class="control-group">
+        <button class="btn" onclick="rotateModelY(-15, event)">↺ -15°</button>
+        <button class="btn" onclick="rotateModelY(-5, event)">↺ -5°</button>
+        <button class="btn" onclick="rotateModelY(5, event)">↻ +5°</button>
+        <button class="btn" onclick="rotateModelY(15, event)">↻ +15°</button>
+      </div>
+
+      <label>Rotate X-Axis (Pitch / Tilt):</label>
+      <div class="control-group">
+        <button class="btn" onclick="rotateModelX(-15, event)">↺ -15°</button>
+        <button class="btn" onclick="rotateModelX(-5, event)">↺ -5°</button>
+        <button class="btn" onclick="rotateModelX(5, event)">↻ +5°</button>
+        <button class="btn" onclick="rotateModelX(15, event)">↻ +15°</button>
+      </div>
+
+      <label>Height Adjustment:</label>
+      <div class="control-group">
+        <button class="btn" onclick="moveHeight(-0.5, event)">▼ -50cm</button>
+        <button class="btn" onclick="moveHeight(-0.1, event)">▼ -10cm</button>
+        <button class="btn" onclick="moveHeight(0.1, event)">▲ +10cm</button>
+        <button class="btn" onclick="moveHeight(0.5, event)">▲ +50cm</button>
+      </div>
+
+      <label>Scale Calibration:</label>
+      <div class="control-group">
+        <button class="btn" onclick="adjustScale(0.95, event)">- 5%</button>
+        <button class="btn" onclick="adjustScale(1.05, event)">+ 5%</button>
+      </div>
+
+      <h3>2. Add Media Frames</h3>
+      <label for="media-url">Image / Video URL:</label>
+      <input type="text" id="media-url" placeholder="https://example.com/art.jpg">
+      <div class="control-group">
+        <button class="btn" onclick="addMediaFrame('image', event)">+ Add Image</button>
+        <button class="btn" onclick="addMediaFrame('video', event)">+ Add Video</button>
+      </div>
+
+      <h3>3. Real-World Measure Tool</h3>
+      <div class="control-group">
+        <button id="measure-btn" class="btn" onclick="toggleMeasureTool(event)">📐 Start Measure</button>
+        <button class="btn" onclick="clearMeasurements(event)">Clear</button>
+      </div>
+
+      <div class="instructions">
+        • <b>Ghost Mode:</b> Makes model 30% opaque so you see real floor.<br>
+        • <b>Align Entrance:</b> Snaps front threshold 2m ahead of you.<br>
+        • <b>Left Controller X / Y:</b> Show/Hide Menu in AR.
+      </div>
     </div>
-  </div>
 
-  <button id="custom-ar-button" disabled>LOADING MODEL...</button>
+    <button id="custom-ar-button" disabled>LOADING MODEL...</button>
+  </div>
 
   <script>
     let scene, camera, renderer, controllerRight, controllerLeft, orbitControls;
     let currentModel = null;
     let modelGroup = null;
-    let reticleMesh = null;
     let xrSession = null;
     let isModelReady = false;
     let isLocked = false;
+    let isGhostMode = false;
+    let isGrabbing = false;
     
-    // Joystick debouncing
-    let lastStickXTime = 0;
-    let lastStickYTime = 0;
+    // Measurement Tool
+    let isMeasuring = false;
+    let measurePoints = [];
+    let measureGroup = null;
+
+    // Track Gamepad Button States
+    let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
 
@@ -143,15 +238,10 @@
       modelGroup = new THREE.Group();
       scene.add(modelGroup);
 
-      // 2. Corner Snapping Reticle (Green Ring)
-      const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32);
-      reticleGeo.rotateX(-Math.PI / 2); // Lay flat on floor
-      const reticleMat = new THREE.MeshBasicMaterial({ color: 0x4CAF50, side: THREE.DoubleSide });
-      reticleMesh = new THREE.Mesh(reticleGeo, reticleMat);
-      reticleMesh.visible = false;
-      scene.add(reticleMesh);
+      measureGroup = new THREE.Group();
+      scene.add(measureGroup);
 
-      // 3. Lighting Setup
+      // 2. Soft Architectural Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -163,7 +253,7 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // 4. WebGL Renderer
+      // 3. WebGL Renderer with sRGB & Filmic Tone Mapping
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -176,28 +266,33 @@
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 5. Desktop Controls
+      // 4. Orbit Controls (Desktop View)
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 6. Controllers
+      // 5. Button & Controller Setup
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
+      // Right Controller (Pointers, Trigger, Squeeze Grip)
       controllerRight = renderer.xr.getController(0);
-      controllerRight.addEventListener('select', onSnapToCorner);
+      controllerRight.addEventListener('select', onControllerSelect);
+      controllerRight.addEventListener('squeezestart', onGripStart);
+      controllerRight.addEventListener('squeezeend', onGripEnd);
       scene.add(controllerRight);
 
-      // Visual Laser Pointer
-      const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x4CAF50, transparent: true, opacity: 0.5 });
-      const laserLine = new THREE.Line(lineGeo, lineMat);
-      controllerRight.add(laserLine);
-
+      // Left Controller
       controllerLeft = renderer.xr.getController(1);
       scene.add(controllerLeft);
 
-      // 7. Load Default Model
+      // Keyboard Shortcut 'M' on PC
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'm' || e.key === 'M') {
+          toggleUIVisibility();
+        }
+      });
+
+      // 6. Model Select Listener
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -208,7 +303,8 @@
       window.addEventListener('resize', onWindowResize);
     }
 
-    async function onStartAR() {
+    async function onStartAR(e) {
+      if (e) e.stopPropagation();
       if (!isModelReady) return;
 
       if ('xr' in navigator) {
@@ -219,7 +315,8 @@
               renderer.compile(scene, camera);
 
               xrSession = await navigator.xr.requestSession('immersive-ar', {
-                optionalFeatures: ['local-floor', 'hit-test']
+                optionalFeatures: ['local-floor', 'dom-overlay'],
+                domOverlay: { root: document.getElementById('overlay-root') }
               });
 
               renderer.xr.setSession(xrSession);
@@ -227,16 +324,22 @@
               scene.background = null;
               renderer.setClearColor(0x000000, 0);
               document.body.style.backgroundColor = 'transparent';
-              document.getElementById('ui-container').style.display = 'none';
               document.getElementById('custom-ar-button').style.display = 'none';
+
+              document.getElementById('ui-container').style.display = 'block';
+
+              // ENTRANCE PLACEMENT: Position entrance 2 meters ahead on floor level
+              if (modelGroup && !isLocked) {
+                modelGroup.position.set(0, 0, -2);
+                modelGroup.rotation.set(0, 0, 0);
+              }
 
               xrSession.addEventListener('end', () => {
                 xrSession = null;
                 scene.background = new THREE.Color(0x111111);
                 document.body.style.backgroundColor = '#111111';
-                document.getElementById('ui-container').style.display = 'block';
                 document.getElementById('custom-ar-button').style.display = 'block';
-                reticleMesh.visible = false;
+                document.getElementById('ui-container').style.display = 'block';
               });
             }
           } else {
@@ -246,6 +349,15 @@
           console.error("XR Session Error:", err);
           alert("AR Session Error: " + err.message);
         }
+      }
+    }
+
+    function toggleUIVisibility() {
+      const ui = document.getElementById('ui-container');
+      if (ui.style.display === 'none') {
+        ui.style.display = 'block';
+      } else {
+        ui.style.display = 'none';
       }
     }
 
@@ -303,13 +415,13 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // Set entrance origin at floor level
-          currentModel.position.set(-center.x, -box.min.y, -center.z);
+          // CRITICAL FIX: Align ENTRANCE threshold (max Z) at 0, floor (min Y) at 0, center width (X)
+          currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
           if (orbitControls) {
-            orbitControls.target.set(0, finalSize.y / 2, 0);
-            camera.position.set(0, finalSize.y / 2 + 1, Math.max(finalSize.x, finalSize.z) * 1.2);
+            orbitControls.target.set(0, finalSize.y / 2, -finalSize.z / 2);
+            camera.position.set(0, finalSize.y / 2 + 1, finalSize.z * 0.5 + 2);
             orbitControls.update();
           }
 
@@ -337,87 +449,224 @@
       );
     }
 
-    // Snap Entrance to Corner Target
-    function onSnapToCorner() {
-      if (renderer.xr.isPresenting && !isLocked && reticleMesh.visible) {
-        modelGroup.position.copy(reticleMesh.position);
-        
-        // Face the model toward the user camera from the corner
-        const camDir = new THREE.Vector3();
-        camera.getWorldDirection(camDir);
-        camDir.y = 0; // Keep horizontal
-        
-        modelGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), camDir.negate());
-        isLocked = true; // Lock immediately upon snapping
+    // Ghost See-Through Mode
+    function toggleGhostMode(e) {
+      if (e) e.stopPropagation();
+      isGhostMode = !isGhostMode;
+      const btn = document.getElementById('ghost-btn');
+
+      if (currentModel) {
+        currentModel.traverse((child) => {
+          if (child.isMesh && child.material) {
+            child.material.transparent = true;
+            child.material.opacity = isGhostMode ? 0.30 : 1.0;
+          }
+        });
+      }
+
+      if (isGhostMode) {
+        btn.innerText = "👻 Opaque Mode (100%)";
+        btn.classList.add('btn-active');
+      } else {
+        btn.innerText = "👻 Ghost Mode (30%)";
+        btn.classList.remove('btn-active');
       }
     }
 
-    // Update Raycast Reticle & Controller Thumbsticks
-    function updateXR() {
+    // Controller Free-Grab (Grip Squeeze)
+    function onGripStart() {
+      if (!isLocked && controllerRight && modelGroup) {
+        isGrabbing = true;
+      }
+    }
+
+    function onGripEnd() {
+      isGrabbing = false;
+    }
+
+    function updateGrabPosition() {
+      if (isGrabbing && controllerRight && modelGroup) {
+        const controllerPos = new THREE.Vector3();
+        const controllerRot = new THREE.Quaternion();
+        controllerRight.getWorldPosition(controllerPos);
+        controllerRight.getWorldQuaternion(controllerRot);
+
+        modelGroup.position.copy(controllerPos);
+        modelGroup.quaternion.copy(controllerRot);
+      }
+    }
+
+    // Lock/Unlock Spatial Position
+    function toggleLockPosition(e) {
+      if (e) e.stopPropagation();
+      isLocked = !isLocked;
+      const btn = document.getElementById('lock-btn');
+      if (isLocked) {
+        btn.innerText = "🔓 Position Locked";
+        btn.classList.add('btn-active');
+      } else {
+        btn.innerText = "🔒 Lock Position";
+        btn.classList.remove('btn-active');
+      }
+    }
+
+    function alignEntranceToFloor(e) {
+      if (e) e.stopPropagation();
+      if (modelGroup && controllerRight) {
+        const targetPos = new THREE.Vector3();
+        const targetRot = new THREE.Quaternion();
+        controllerRight.getWorldPosition(targetPos);
+        controllerRight.getWorldQuaternion(targetRot);
+
+        modelGroup.position.copy(targetPos);
+        modelGroup.quaternion.copy(targetRot);
+      }
+    }
+
+    function onControllerSelect() {
+      if (isMeasuring) {
+        handleMeasurementPoint();
+      }
+    }
+
+    function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
-        // 1. Raycast aiming line from controller to floor
-        if (!isLocked) {
-          const tempMatrix = new THREE.Matrix4();
-          tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
-
-          const raycaster = new THREE.Raycaster();
-          const rayOrigin = new THREE.Vector3();
-          controllerRight.getWorldPosition(rayOrigin);
-          const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
-
-          raycaster.set(rayOrigin, rayDir);
-
-          // Floor plane intersection at y = 0
-          const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-          const intersectPoint = new THREE.Vector3();
-
-          if (raycaster.ray.intersectPlane(floorPlane, intersectPoint)) {
-            reticleMesh.position.copy(intersectPoint);
-            reticleMesh.visible = true;
-          }
-        } else {
-          reticleMesh.visible = false;
-        }
-
-        // 2. Poll Thumbsticks & Grips for Adjustments
         const session = renderer.xr.getSession();
         if (session) {
-          const now = Date.now();
-
           for (const source of session.inputSources) {
-            // Left Controller Squeeze Grip -> Unlock Position
             if (source.handedness === 'left' && source.gamepad) {
-              const gripBtn = source.gamepad.buttons[1]; // Squeeze Grip
-              if (gripBtn && gripBtn.pressed) {
-                isLocked = false; // Unlock position to re-aim at a corner
+              const buttons = source.gamepad.buttons;
+              const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
+              
+              if (btnPressed && !prevLeftBtnState) {
+                toggleUIVisibility();
               }
-            }
-
-            // Right Controller Thumbstick -> Rotate & Scale
-            if (source.handedness === 'right' && source.gamepad) {
-              const axes = source.gamepad.axes; // [x, y]
-              const stickX = axes[2] !== undefined ? axes[2] : axes[0];
-              const stickY = axes[3] !== undefined ? axes[3] : axes[1];
-
-              // Rotate (Thumbstick Left / Right)
-              if (Math.abs(stickX) > 0.6 && now - lastStickXTime > 250) {
-                if (modelGroup) {
-                  modelGroup.rotation.y += THREE.MathUtils.degToRad(stickX > 0 ? 15 : -15);
-                }
-                lastStickXTime = now;
-              }
-
-              // Scale (Thumbstick Up / Down)
-              if (Math.abs(stickY) > 0.6 && now - lastStickYTime > 250) {
-                if (modelGroup) {
-                  const factor = stickY < 0 ? 1.05 : 0.95;
-                  modelGroup.scale.multiplyScalar(factor);
-                }
-                lastStickYTime = now;
-              }
+              prevLeftBtnState = btnPressed;
             }
           }
         }
+      }
+    }
+
+    // Add Media Frames
+    function addMediaFrame(type, e) {
+      if (e) e.stopPropagation();
+      const urlInput = document.getElementById('media-url').value.trim();
+      if (!urlInput) {
+        alert("Please paste a valid image or video URL.");
+        return;
+      }
+
+      const planeGeo = new THREE.PlaneGeometry(1.2, 0.8);
+      let planeMat;
+
+      if (type === 'image') {
+        const texture = new THREE.TextureLoader().load(urlInput);
+        texture.encoding = THREE.sRGBEncoding;
+        planeMat = new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide });
+      } else if (type === 'video') {
+        const video = document.createElement('video');
+        video.src = urlInput;
+        video.crossOrigin = 'anonymous';
+        video.loop = true;
+        video.muted = true;
+        video.play();
+
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.encoding = THREE.sRGBEncoding;
+        planeMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+      }
+
+      const frameMesh = new THREE.Mesh(planeGeo, planeMat);
+
+      if (renderer.xr.isPresenting && controllerRight) {
+        controllerRight.getWorldPosition(frameMesh.position);
+      } else {
+        frameMesh.position.set(0, 1.5, -1.5);
+      }
+
+      scene.add(frameMesh);
+      alert(`${type.toUpperCase()} frame created!`);
+    }
+
+    // Real-World Measurement Tool
+    function toggleMeasureTool(e) {
+      if (e) e.stopPropagation();
+      isMeasuring = !isMeasuring;
+      const btn = document.getElementById('measure-btn');
+      if (isMeasuring) {
+        btn.innerText = "📏 Measuring...";
+        btn.classList.add('btn-active');
+        measurePoints = [];
+      } else {
+        btn.innerText = "📐 Start Measure";
+        btn.classList.remove('btn-active');
+      }
+    }
+
+    function handleMeasurementPoint() {
+      const point = new THREE.Vector3();
+      controllerRight.getWorldPosition(point);
+
+      const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
+      const sphereMat = new THREE.MeshBasicMaterial({ color: 0xFFEB3B });
+      const marker = new THREE.Mesh(sphereGeo, sphereMat);
+      marker.position.copy(point);
+      measureGroup.add(marker);
+
+      measurePoints.push(point);
+
+      if (measurePoints.length === 2) {
+        const distance = measurePoints[0].distanceTo(measurePoints[1]);
+        const distMeters = distance.toFixed(2);
+        const distFeet = (distance * 3.28084).toFixed(2);
+
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xFFEB3B, linewidth: 3 });
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(measurePoints);
+        const line = new THREE.Line(lineGeo, lineMat);
+        measureGroup.add(line);
+
+        alert(`Measured Distance: ${distMeters} m (${distFeet} ft)`);
+        
+        measurePoints = [];
+      }
+    }
+
+    function clearMeasurements(e) {
+      if (e) e.stopPropagation();
+      while (measureGroup.children.length > 0) {
+        measureGroup.remove(measureGroup.children[0]);
+      }
+      measurePoints = [];
+    }
+
+    // Transformation Controls
+    function rotateModelY(deg, e) {
+      if (e) e.stopPropagation();
+      if (modelGroup) modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
+    }
+
+    function rotateModelX(deg, e) {
+      if (e) e.stopPropagation();
+      if (modelGroup) modelGroup.rotation.x += THREE.MathUtils.degToRad(deg);
+    }
+
+    function moveHeight(deltaY, e) {
+      if (e) e.stopPropagation();
+      if (modelGroup) modelGroup.position.y += deltaY;
+    }
+
+    function adjustScale(factor, e) {
+      if (e) e.stopPropagation();
+      if (modelGroup) modelGroup.scale.multiplyScalar(factor);
+    }
+
+    function resetTransforms(e) {
+      if (e) e.stopPropagation();
+      if (modelGroup) {
+        modelGroup.position.set(0, 0, -2);
+        modelGroup.rotation.set(0, 0, 0);
+        modelGroup.scale.set(1, 1, 1);
       }
     }
 
@@ -432,7 +681,8 @@
     }
 
     function render() {
-      updateXR(); // Updates reticle position & thumbstick controls
+      checkXRGamepadInputs();
+      updateGrabPosition();
 
       if (!renderer.xr.isPresenting && orbitControls) {
         orbitControls.update();
