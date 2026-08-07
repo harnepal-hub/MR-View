@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio Gallery MR Viewer</title>
+  <title>Studio Gallery MR Viewer - Axis Aligned</title>
   <style>
     html, body {
       margin: 0;
@@ -149,7 +149,7 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Floor Raycast & Numeric Transforms</h3>
+      <h3>1. Aligned Numeric Transforms</h3>
       
       <div class="control-group">
         <button id="raycast-btn" class="btn" onclick="toggleRaycastPlacement(event)">🎯 Raycast Floor Mark</button>
@@ -160,15 +160,15 @@
       <label>Position (Meters):</label>
       <div class="input-grid">
         <div>
-          <label>X (Width)</label>
+          <label>X (Red/Width)</label>
           <input type="number" id="pos-x" step="0.05" value="0.00" oninput="onDirectTransformChange()">
         </div>
         <div>
-          <label>Y (Height)</label>
+          <label>Y (Green/Height)</label>
           <input type="number" id="pos-y" step="0.05" value="0.00" oninput="onDirectTransformChange()">
         </div>
         <div>
-          <label>Z (Depth)</label>
+          <label>Z (Blue/Depth)</label>
           <input type="number" id="pos-z" step="0.05" value="-2.00" oninput="onDirectTransformChange()">
         </div>
       </div>
@@ -178,7 +178,7 @@
       <input type="number" id="rot-y" step="1" value="0" oninput="onDirectTransformChange()">
       <input type="range" id="slider-rot-y" min="-180" max="180" value="0" oninput="onSliderChange('rot-y', this.value)">
 
-      <label>Rotation X - Tilt (°):</label>
+      <label>Rotation X - Pitch (°):</label>
       <input type="number" id="rot-x" step="1" value="0" oninput="onDirectTransformChange()">
       <input type="range" id="slider-rot-x" min="-90" max="90" value="0" oninput="onSliderChange('rot-x', this.value)">
 
@@ -208,8 +208,8 @@
       </div>
 
       <div class="instructions">
-        • <b>Raycast Floor Mark:</b> Point laser at real floor and pull right trigger to place.<br>
-        • <b>Direct Edits:</b> Type exact numbers into X, Y, Z or drag sliders.
+        • <b>RGB Axes:</b> Red = X (Width), Green = Y (Height), Blue = Z (Depth).<br>
+        • <b>Raycast Floor Mark:</b> Point laser at floor and pull right trigger to place origin.
       </div>
     </div>
 
@@ -231,9 +231,9 @@
     let isRaycastMode = false;
     let showAxes = true;
     
-    // Raycaster Floor Intersection
+    // Raycaster Floor Intersection ($Y = 0$)
     const raycaster = new THREE.Raycaster();
-    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Y = 0 floor
+    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const rayIntersectionPoint = new THREE.Vector3();
 
     // Measurement Tool
@@ -241,7 +241,6 @@
     let measurePoints = [];
     let measureGroup = null;
 
-    // Track Gamepad Button States
     let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
@@ -250,7 +249,6 @@
     animate();
 
     function init() {
-      // 1. Scene & Camera Setup
       scene = new THREE.Scene();
       scene.background = new THREE.Color(0x111111);
 
@@ -263,11 +261,11 @@
       measureGroup = new THREE.Group();
       scene.add(measureGroup);
 
-      // 3D RGB Axes Helper
+      // 3D RGB Axes Helper (Red=X, Green=Y, Blue=Z)
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
 
-      // Floor Target Reticle (Green Ring)
+      // Floor Target Reticle
       const ringGeo = new THREE.RingGeometry(0.12, 0.16, 32);
       ringGeo.rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x00E676, side: THREE.DoubleSide });
@@ -275,7 +273,7 @@
       floorReticle.visible = false;
       scene.add(floorReticle);
 
-      // 2. Soft Architectural Lighting
+      // Soft Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -287,7 +285,7 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // 3. WebGL Renderer
+      // WebGL Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -300,11 +298,9 @@
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Controllers
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
@@ -312,7 +308,7 @@
       controllerRight.addEventListener('select', onControllerSelect);
       scene.add(controllerRight);
 
-      // Laser Pointer Line attached to Right Controller
+      // Laser Pointer Line
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.7 });
       laserLine = new THREE.Line(lineGeo, lineMat);
@@ -322,14 +318,12 @@
       controllerLeft = renderer.xr.getController(1);
       scene.add(controllerLeft);
 
-      // Desktop 'M' shortcut
       window.addEventListener('keydown', (e) => {
         if (e.key === 'm' || e.key === 'M') {
           toggleUIVisibility();
         }
       });
 
-      // 6. Load Initial Model
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
 
@@ -434,7 +428,7 @@
             }
           });
 
-          // Unit Check
+          // Auto-Scale check for SketchUp Inch/Meter exports
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           
@@ -448,7 +442,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // Set origin at front entrance threshold
+          // AXIS ALIGNMENT: Floor level at Y=0 (-box.min.y), Entrance at Z=0 (-box.max.z), Width centered (-center.x)
           currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
@@ -484,7 +478,6 @@
       );
     }
 
-    // Toggle Floor Raycast Marking Mode
     function toggleRaycastPlacement(e) {
       if (e) e.stopPropagation();
       isRaycastMode = !isRaycastMode;
@@ -502,7 +495,6 @@
       }
     }
 
-    // Update Raycast Target Reticle on Floor ($Y = 0$)
     function updateRaycast() {
       if (renderer.xr.isPresenting && isRaycastMode && controllerRight) {
         const tempMatrix = new THREE.Matrix4();
@@ -521,21 +513,16 @@
       }
     }
 
-    // Right Trigger Click Handler
     function onControllerSelect() {
       if (isMeasuring) {
         handleMeasurementPoint();
       } else if (isRaycastMode && floorReticle.visible && modelGroup) {
-        // Snap Entrance Origin to marked floor point
         modelGroup.position.copy(floorReticle.position);
         updateUIFieldsFromModel();
-
-        // Turn off raycast mode after placing
         toggleRaycastPlacement(null);
       }
     }
 
-    // DIRECT NUMERIC INPUT CONTROLS
     function onDirectTransformChange() {
       if (!modelGroup) return;
 
@@ -642,7 +629,6 @@
       }
     }
 
-    // Add Media Frames
     function addMediaFrame(type, e) {
       if (e) e.stopPropagation();
       const urlInput = document.getElementById('media-url').value.trim();
@@ -683,7 +669,6 @@
       alert(`${type.toUpperCase()} frame created!`);
     }
 
-    // Real-World Measurement Tool
     function toggleMeasureTool(e) {
       if (e) e.stopPropagation();
       isMeasuring = !isMeasuring;
