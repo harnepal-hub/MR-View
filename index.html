@@ -15,7 +15,7 @@
       background-color: #111111;
       color: #ffffff;
     }
-    /* WebXR Overlay Root - Full Screen Boundary */
+    /* WebXR Overlay Root Boundary */
     #overlay-root {
       position: absolute;
       top: 0;
@@ -196,7 +196,7 @@
 
       <div class="instructions">
         • <b>Ghost Mode:</b> Makes model 30% opaque so you see real floor.<br>
-        • <b>Align Entrance:</b> Snaps front threshold 2m ahead of you.<br>
+        • <b>Hold Controller Grip (Squeeze):</b> Free-drag model in 3D.<br>
         • <b>Left Controller X / Y:</b> Show/Hide Menu in AR.
       </div>
     </div>
@@ -219,7 +219,7 @@
     let measurePoints = [];
     let measureGroup = null;
 
-    // Track Gamepad Button States
+    // Gamepad Button State Tracker
     let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
@@ -274,7 +274,7 @@
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
-      // Right Controller (Pointers, Trigger, Squeeze Grip)
+      // Right Controller (Pointer, Trigger, Grip Squeeze)
       controllerRight = renderer.xr.getController(0);
       controllerRight.addEventListener('select', onControllerSelect);
       controllerRight.addEventListener('squeezestart', onGripStart);
@@ -415,7 +415,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // CRITICAL FIX: Align ENTRANCE threshold (max Z) at 0, floor (min Y) at 0, center width (X)
+          // ENTRANCE ORIGIN ALIGNMENT: Front threshold (max Z) at 0, floor (min Y) at 0, center width (X)
           currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
