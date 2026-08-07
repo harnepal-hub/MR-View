@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio Gallery MR Viewer - Axis Aligned</title>
+  <title>Studio Gallery MR Viewer</title>
   <style>
     html, body {
       margin: 0;
@@ -79,6 +79,7 @@
       font-size: 11px;
       font-weight: bold;
       cursor: pointer;
+      transition: background 0.2s;
     }
     button.btn:active { background: #4CAF50; }
     button.btn-active {
@@ -116,7 +117,6 @@
       cursor: pointer;
       z-index: 10000;
       box-shadow: 0 4px 15px rgba(0,0,0,0.6);
-      transition: all 0.2s ease-in-out;
       pointer-events: auto;
     }
     #custom-ar-button:disabled {
@@ -133,7 +133,6 @@
 </head>
 <body>
 
-  <!-- Fullscreen WebXR DOM Overlay Root -->
   <div id="overlay-root">
     <div id="ui-container">
       <h2>Gallery MR Studio</h2>
@@ -149,67 +148,65 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Aligned Numeric Transforms</h3>
+      <h3>1. Spatial Coordinates & Alignment</h3>
       
       <div class="control-group">
-        <button id="raycast-btn" class="btn" onclick="toggleRaycastPlacement(event)">🎯 Raycast Floor Mark</button>
-        <button id="lock-btn" class="btn" onclick="toggleLockPosition(event)">🔒 Lock Position</button>
+        <button id="raycast-btn" class="btn" onclick="toggleRaycastPlacement()">🎯 Raycast Floor Mark</button>
+        <button id="lock-btn" class="btn" onclick="toggleLockPosition()">🔒 Lock Position</button>
       </div>
 
-      <!-- Editable Position Inputs -->
       <label>Position (Meters):</label>
       <div class="input-grid">
         <div>
-          <label>X (Red/Width)</label>
+          <label>X (Width)</label>
           <input type="number" id="pos-x" step="0.05" value="0.00" oninput="onDirectTransformChange()">
         </div>
         <div>
-          <label>Y (Green/Height)</label>
+          <label>Y (Height)</label>
           <input type="number" id="pos-y" step="0.05" value="0.00" oninput="onDirectTransformChange()">
         </div>
         <div>
-          <label>Z (Blue/Depth)</label>
+          <label>Z (Depth)</label>
           <input type="number" id="pos-z" step="0.05" value="-2.00" oninput="onDirectTransformChange()">
         </div>
       </div>
 
-      <!-- Editable Rotation Inputs & Sliders -->
       <label>Rotation Y - Horizontal (°):</label>
       <input type="number" id="rot-y" step="1" value="0" oninput="onDirectTransformChange()">
       <input type="range" id="slider-rot-y" min="-180" max="180" value="0" oninput="onSliderChange('rot-y', this.value)">
 
-      <label>Rotation X - Pitch (°):</label>
+      <label>Rotation X - Tilt (°):</label>
       <input type="number" id="rot-x" step="1" value="0" oninput="onDirectTransformChange()">
       <input type="range" id="slider-rot-x" min="-90" max="90" value="0" oninput="onSliderChange('rot-x', this.value)">
 
-      <!-- Editable Scale Input & Slider -->
       <label>Scale (%):</label>
       <input type="number" id="scale-val" step="1" value="100" oninput="onDirectTransformChange()">
       <input type="range" id="slider-scale" min="10" max="500" value="100" oninput="onSliderChange('scale', this.value)">
 
       <div class="control-group">
-        <button id="axes-btn" class="btn btn-active" onclick="toggleAxesHelper(event)">📐 Axes (RGB) ON</button>
-        <button id="ghost-btn" class="btn" onclick="toggleGhostMode(event)">👻 Ghost Mode</button>
-        <button class="btn" onclick="resetTransforms(event)">Reset</button>
+        <button id="axes-btn" class="btn btn-active" onclick="toggleAxesHelper()">📐 Axes (RGB) ON</button>
+        <button id="ghost-btn" class="btn" onclick="toggleGhostMode()">👻 Ghost Mode</button>
+        <button class="btn" onclick="resetTransforms()">Reset</button>
       </div>
 
       <h3>2. Add Media Frames</h3>
       <label for="media-url">Image / Video URL:</label>
       <input type="text" id="media-url" placeholder="https://example.com/art.jpg">
       <div class="control-group">
-        <button class="btn" onclick="addMediaFrame('image', event)">+ Add Image</button>
-        <button class="btn" onclick="addMediaFrame('video', event)">+ Add Video</button>
+        <button class="btn" onclick="addMediaFrame('image')">+ Add Image</button>
+        <button class="btn" onclick="addMediaFrame('video')">+ Add Video</button>
       </div>
 
       <h3>3. Real-World Measure Tool</h3>
       <div class="control-group">
-        <button id="measure-btn" class="btn" onclick="toggleMeasureTool(event)">📐 Start Measure</button>
-        <button class="btn" onclick="clearMeasurements(event)">Clear</button>
+        <button id="measure-btn" class="btn" onclick="toggleMeasureTool()">📐 Start Measure</button>
+        <button class="btn" onclick="clearMeasurements()">Clear</button>
       </div>
 
       <div class="instructions">
-        • <b>RGB Axes:</b> Red = X (Width), Green = Y (Height), Blue = Z (Depth).<br>
-        • <b>Raycast Floor Mark:</b> Point laser at floor and pull right trigger to place origin.
+        • <b>Raycast:</b> Click button, aim at floor, pull trigger.<br>
+        • <b>Edit:</b> Type exact numbers or drag sliders.<br>
+        • <b>Toggle Menu:</b> Press X or Y on Left Controller.
       </div>
     </div>
 
@@ -240,7 +237,6 @@
     let isMeasuring = false;
     let measurePoints = [];
     let measureGroup = null;
-
     let prevLeftBtnState = false;
 
     const loader = new THREE.GLTFLoader();
@@ -273,7 +269,7 @@
       floorReticle.visible = false;
       scene.add(floorReticle);
 
-      // Soft Lighting
+      // Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -285,7 +281,7 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // WebGL Renderer
+      // Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -301,6 +297,12 @@
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
+      // CRITICAL FIX: Block XR Select event from firing when clicking UI menu
+      const uiContainer = document.getElementById('ui-container');
+      uiContainer.addEventListener('beforexrselect', (e) => {
+        e.preventDefault(); 
+      });
+
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
@@ -310,7 +312,7 @@
 
       // Laser Pointer Line
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.7 });
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.8, linewidth: 2 });
       laserLine = new THREE.Line(lineGeo, lineMat);
       laserLine.visible = false;
       controllerRight.add(laserLine);
@@ -319,9 +321,7 @@
       scene.add(controllerLeft);
 
       window.addEventListener('keydown', (e) => {
-        if (e.key === 'm' || e.key === 'M') {
-          toggleUIVisibility();
-        }
+        if (e.key === 'm' || e.key === 'M') toggleUIVisibility();
       });
 
       const initialFile = document.getElementById('model-select').value;
@@ -334,8 +334,7 @@
       window.addEventListener('resize', onWindowResize);
     }
 
-    async function onStartAR(e) {
-      if (e) e.stopPropagation();
+    async function onStartAR() {
       if (!isModelReady) return;
 
       if ('xr' in navigator) {
@@ -357,8 +356,6 @@
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
 
-              document.getElementById('ui-container').style.display = 'block';
-
               if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
@@ -370,7 +367,9 @@
                 scene.background = new THREE.Color(0x111111);
                 document.body.style.backgroundColor = '#111111';
                 document.getElementById('custom-ar-button').style.display = 'block';
-                document.getElementById('ui-container').style.display = 'block';
+                
+                // Ensure Raycast mode turns off if they exit AR
+                if(isRaycastMode) toggleRaycastPlacement();
               });
             }
           } else {
@@ -428,7 +427,7 @@
             }
           });
 
-          // Auto-Scale check for SketchUp Inch/Meter exports
+          // Auto-Scale check
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           
@@ -442,7 +441,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // AXIS ALIGNMENT: Floor level at Y=0 (-box.min.y), Entrance at Z=0 (-box.max.z), Width centered (-center.x)
+          // Align origin
           currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
@@ -468,18 +467,12 @@
             const percent = Math.round((xhr.loaded / xhr.total) * 100);
             statusEl.innerText = `Loading: ${percent}%`;
           }
-        },
-        (error) => {
-          console.error('GLB Load Error:', error);
-          statusEl.style.color = '#f44336';
-          statusEl.innerText = 'Error loading ' + filename;
-          arBtn.innerText = "LOAD ERROR";
         }
       );
     }
 
-    function toggleRaycastPlacement(e) {
-      if (e) e.stopPropagation();
+    // Toggle Floor Raycast Marking Mode
+    function toggleRaycastPlacement() {
       isRaycastMode = !isRaycastMode;
       const btn = document.getElementById('raycast-btn');
 
@@ -495,6 +488,7 @@
       }
     }
 
+    // Update Raycast Target
     function updateRaycast() {
       if (renderer.xr.isPresenting && isRaycastMode && controllerRight) {
         const tempMatrix = new THREE.Matrix4();
@@ -509,20 +503,27 @@
         if (raycaster.ray.intersectPlane(floorPlane, rayIntersectionPoint)) {
           floorReticle.position.copy(rayIntersectionPoint);
           floorReticle.visible = true;
+        } else {
+          floorReticle.visible = false;
         }
       }
     }
 
+    // XR Trigger Pull
     function onControllerSelect() {
       if (isMeasuring) {
         handleMeasurementPoint();
       } else if (isRaycastMode && floorReticle.visible && modelGroup) {
+        // Snap Model Origin to Floor Reticle
         modelGroup.position.copy(floorReticle.position);
         updateUIFieldsFromModel();
-        toggleRaycastPlacement(null);
+        
+        // Turn off raycast mode automatically
+        toggleRaycastPlacement();
       }
     }
 
+    // DIRECT NUMERIC INPUT CONTROLS
     function onDirectTransformChange() {
       if (!modelGroup) return;
 
@@ -574,8 +575,7 @@
       document.getElementById('slider-scale').value = scaleP;
     }
 
-    function toggleAxesHelper(e) {
-      if (e) e.stopPropagation();
+    function toggleAxesHelper() {
       showAxes = !showAxes;
       if (axesHelper) axesHelper.visible = showAxes;
 
@@ -584,8 +584,7 @@
       btn.classList.toggle('btn-active', showAxes);
     }
 
-    function toggleGhostMode(e) {
-      if (e) e.stopPropagation();
+    function toggleGhostMode() {
       isGhostMode = !isGhostMode;
       const btn = document.getElementById('ghost-btn');
 
@@ -602,8 +601,7 @@
       btn.classList.toggle('btn-active', isGhostMode);
     }
 
-    function toggleLockPosition(e) {
-      if (e) e.stopPropagation();
+    function toggleLockPosition() {
       isLocked = !isLocked;
       const btn = document.getElementById('lock-btn');
       btn.innerText = isLocked ? "🔓 Position Locked" : "🔒 Lock Position";
@@ -619,9 +617,7 @@
               const buttons = source.gamepad.buttons;
               const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
               
-              if (btnPressed && !prevLeftBtnState) {
-                toggleUIVisibility();
-              }
+              if (btnPressed && !prevLeftBtnState) toggleUIVisibility();
               prevLeftBtnState = btnPressed;
             }
           }
@@ -629,8 +625,7 @@
       }
     }
 
-    function addMediaFrame(type, e) {
-      if (e) e.stopPropagation();
+    function addMediaFrame(type) {
       const urlInput = document.getElementById('media-url').value.trim();
       if (!urlInput) {
         alert("Please paste a valid image or video URL.");
@@ -664,13 +659,11 @@
       } else {
         frameMesh.position.set(0, 1.5, -1.5);
       }
-
       scene.add(frameMesh);
       alert(`${type.toUpperCase()} frame created!`);
     }
 
-    function toggleMeasureTool(e) {
-      if (e) e.stopPropagation();
+    function toggleMeasureTool() {
       isMeasuring = !isMeasuring;
       const btn = document.getElementById('measure-btn');
       btn.innerText = isMeasuring ? "📏 Measuring..." : "📐 Start Measure";
@@ -705,16 +698,14 @@
       }
     }
 
-    function clearMeasurements(e) {
-      if (e) e.stopPropagation();
+    function clearMeasurements() {
       while (measureGroup.children.length > 0) {
         measureGroup.remove(measureGroup.children[0]);
       }
       measurePoints = [];
     }
 
-    function resetTransforms(e) {
-      if (e) e.stopPropagation();
+    function resetTransforms() {
       if (modelGroup) {
         modelGroup.position.set(0, 0, -2);
         modelGroup.rotation.set(0, 0, 0);
