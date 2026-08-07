@@ -31,7 +31,7 @@
       background: rgba(0, 0, 0, 0.90);
       padding: 16px;
       border-radius: 10px;
-      width: 320px;
+      width: 310px;
       max-height: 88vh;
       overflow-y: auto;
       box-shadow: 0 4px 12px rgba(0,0,0,0.6);
@@ -53,17 +53,6 @@
       font-size: 12px;
       box-sizing: border-box;
     }
-    input[type="range"] {
-      width: 100%;
-      margin: 2px 0 8px 0;
-      accent-color: #4CAF50;
-    }
-    .input-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 6px;
-      margin-bottom: 6px;
-    }
     .control-group {
       display: flex;
       gap: 6px;
@@ -79,7 +68,6 @@
       font-size: 11px;
       font-weight: bold;
       cursor: pointer;
-      transition: background 0.2s;
     }
     button.btn:active { background: #4CAF50; }
     button.btn-active {
@@ -134,6 +122,7 @@
 <body>
 
   <div id="overlay-root">
+    <!-- Desktop 2D Sidebar -->
     <div id="ui-container">
       <h2>Gallery MR Studio</h2>
       
@@ -148,65 +137,31 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Spatial Coordinates & Alignment</h3>
-      
+      <h3>1. Desktop Transform Controls</h3>
       <div class="control-group">
-        <button id="raycast-btn" class="btn" onclick="toggleRaycastPlacement()">🎯 Raycast Floor Mark</button>
-        <button id="lock-btn" class="btn" onclick="toggleLockPosition()">🔒 Lock Position</button>
+        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock Position</button>
+        <button id="ghost-btn-2d" class="btn" onclick="toggleGhostMode()">👻 Ghost Mode</button>
       </div>
 
-      <label>Position (Meters):</label>
-      <div class="input-grid">
-        <div>
-          <label>X (Width)</label>
-          <input type="number" id="pos-x" step="0.05" value="0.00" oninput="onDirectTransformChange()">
-        </div>
-        <div>
-          <label>Y (Height)</label>
-          <input type="number" id="pos-y" step="0.05" value="0.00" oninput="onDirectTransformChange()">
-        </div>
-        <div>
-          <label>Z (Depth)</label>
-          <input type="number" id="pos-z" step="0.05" value="-2.00" oninput="onDirectTransformChange()">
-        </div>
+      <div class="control-group">
+        <button class="btn" onclick="rotateModelY(-15)">↺ Rot Y -15°</button>
+        <button class="btn" onclick="rotateModelY(15)">↻ Rot Y +15°</button>
       </div>
 
-      <label>Rotation Y - Horizontal (°):</label>
-      <input type="number" id="rot-y" step="1" value="0" oninput="onDirectTransformChange()">
-      <input type="range" id="slider-rot-y" min="-180" max="180" value="0" oninput="onSliderChange('rot-y', this.value)">
-
-      <label>Rotation X - Tilt (°):</label>
-      <input type="number" id="rot-x" step="1" value="0" oninput="onDirectTransformChange()">
-      <input type="range" id="slider-rot-x" min="-90" max="90" value="0" oninput="onSliderChange('rot-x', this.value)">
-
-      <label>Scale (%):</label>
-      <input type="number" id="scale-val" step="1" value="100" oninput="onDirectTransformChange()">
-      <input type="range" id="slider-scale" min="10" max="500" value="100" oninput="onSliderChange('scale', this.value)">
-
       <div class="control-group">
-        <button id="axes-btn" class="btn btn-active" onclick="toggleAxesHelper()">📐 Axes (RGB) ON</button>
-        <button id="ghost-btn" class="btn" onclick="toggleGhostMode()">👻 Ghost Mode</button>
-        <button class="btn" onclick="resetTransforms()">Reset</button>
+        <button class="btn" onclick="moveHeight(0.1)">▲ Height +10cm</button>
+        <button class="btn" onclick="moveHeight(-0.1)">▼ Height -10cm</button>
       </div>
 
-      <h3>2. Add Media Frames</h3>
-      <label for="media-url">Image / Video URL:</label>
-      <input type="text" id="media-url" placeholder="https://example.com/art.jpg">
       <div class="control-group">
-        <button class="btn" onclick="addMediaFrame('image')">+ Add Image</button>
-        <button class="btn" onclick="addMediaFrame('video')">+ Add Video</button>
-      </div>
-
-      <h3>3. Real-World Measure Tool</h3>
-      <div class="control-group">
-        <button id="measure-btn" class="btn" onclick="toggleMeasureTool()">📐 Start Measure</button>
-        <button class="btn" onclick="clearMeasurements()">Clear</button>
+        <button class="btn" onclick="adjustScale(1.05)">+ Scale 5%</button>
+        <button class="btn" onclick="adjustScale(0.95)">- Scale 5%</button>
       </div>
 
       <div class="instructions">
-        • <b>Raycast:</b> Click button, aim at floor, pull trigger.<br>
-        • <b>Edit:</b> Type exact numbers or drag sliders.<br>
-        • <b>Toggle Menu:</b> Press X or Y on Left Controller.
+        • <b>Meta Quest AR:</b> Tap <b>START AR</b>. A 3D Control Menu will spawn directly in front of you.<br>
+        • <b>Left Controller X/Y Button:</b> Show/Hide 3D Menu in AR.<br>
+        • <b>Right Trigger:</b> Click 3D menu buttons or mark floor.
       </div>
     </div>
 
@@ -221,6 +176,11 @@
     let floorReticle = null;
     let laserLine = null;
 
+    // 3D VR Menu Objects
+    let ar3DMenuGroup = null;
+    let ar3DButtons = [];
+    let hudCanvas, hudTexture, hudContext;
+
     let xrSession = null;
     let isModelReady = false;
     let isLocked = false;
@@ -228,12 +188,11 @@
     let isRaycastMode = false;
     let showAxes = true;
     
-    // Raycaster Floor Intersection ($Y = 0$)
+    // Raycaster Setup
     const raycaster = new THREE.Raycaster();
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const rayIntersectionPoint = new THREE.Vector3();
 
-    // Measurement Tool
     let isMeasuring = false;
     let measurePoints = [];
     let measureGroup = null;
@@ -257,11 +216,11 @@
       measureGroup = new THREE.Group();
       scene.add(measureGroup);
 
-      // 3D RGB Axes Helper (Red=X, Green=Y, Blue=Z)
+      // 3D RGB Axes
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
 
-      // Floor Target Reticle
+      // Target Floor Reticle
       const ringGeo = new THREE.RingGeometry(0.12, 0.16, 32);
       ringGeo.rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x00E676, side: THREE.DoubleSide });
@@ -297,32 +256,25 @@
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // CRITICAL FIX: Block XR Select event from firing when clicking UI menu
-      const uiContainer = document.getElementById('ui-container');
-      uiContainer.addEventListener('beforexrselect', (e) => {
-        e.preventDefault(); 
-      });
-
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
+      // Controller Setup
       controllerRight = renderer.xr.getController(0);
       controllerRight.addEventListener('select', onControllerSelect);
       scene.add(controllerRight);
 
-      // Laser Pointer Line
+      // Laser Pointer
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.8, linewidth: 2 });
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.8 });
       laserLine = new THREE.Line(lineGeo, lineMat);
-      laserLine.visible = false;
       controllerRight.add(laserLine);
 
       controllerLeft = renderer.xr.getController(1);
       scene.add(controllerLeft);
 
-      window.addEventListener('keydown', (e) => {
-        if (e.key === 'm' || e.key === 'M') toggleUIVisibility();
-      });
+      // Build the 3D AR Control Menu
+      build3DARMenu();
 
       const initialFile = document.getElementById('model-select').value;
       loadModel(initialFile);
@@ -332,6 +284,114 @@
       });
 
       window.addEventListener('resize', onWindowResize);
+    }
+
+    // --- BUILD NATIVE 3D AR FLOATING MENU PANEL ---
+    function build3DARMenu() {
+      ar3DMenuGroup = new THREE.Group();
+      ar3DMenuGroup.visible = false; // Hidden until AR starts
+
+      // Panel Background
+      const bgGeo = new THREE.PlaneGeometry(0.8, 1.0);
+      const bgMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+      const bgMesh = new THREE.Mesh(bgGeo, bgMat);
+      ar3DMenuGroup.add(bgMesh);
+
+      // Canvas Texture for Dynamic Status Display
+      hudCanvas = document.createElement('canvas');
+      hudCanvas.width = 512;
+      hudCanvas.height = 256;
+      hudContext = hudCanvas.getContext('2d');
+      
+      hudTexture = new THREE.CanvasTexture(hudCanvas);
+      const hudGeo = new THREE.PlaneGeometry(0.72, 0.3);
+      const hudMat = new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true });
+      const hudMesh = new THREE.Mesh(hudGeo, hudMat);
+      hudMesh.position.set(0, 0.3, 0.01);
+      ar3DMenuGroup.add(hudMesh);
+
+      // Button Layout Grid
+      const buttonsConfig = [
+        { label: "🎯 Raycast Mark", action: "raycast", x: -0.19, y: 0.08, w: 0.35, h: 0.09, col: 0x2e7d32 },
+        { label: "🔒 Lock Pos", action: "lock", x: 0.19, y: 0.08, w: 0.35, h: 0.09, col: 0xc62828 },
+        { label: "↺ Rot Y -15°", action: "roty-", x: -0.19, y: -0.03, w: 0.35, h: 0.08, col: 0x333333 },
+        { label: "↻ Rot Y +15°", action: "roty+", x: 0.19, y: -0.03, w: 0.35, h: 0.08, col: 0x333333 },
+        { label: "▲ Height +10cm", action: "h+", x: -0.19, y: -0.13, w: 0.35, h: 0.08, col: 0x333333 },
+        { label: "▼ Height -10cm", action: "h-", x: 0.19, y: -0.13, w: 0.35, h: 0.08, col: 0x333333 },
+        { label: "+ Scale 5%", action: "s+", x: -0.19, y: -0.23, w: 0.35, h: 0.08, col: 0x333333 },
+        { label: "- Scale 5%", action: "s-", x: 0.19, y: -0.23, w: 0.35, h: 0.08, col: 0x333333 },
+        { label: "👻 Ghost Mode", action: "ghost", x: -0.19, y: -0.33, w: 0.35, h: 0.08, col: 0x1565c0 },
+        { label: "Reset Transforms", action: "reset", x: 0.19, y: -0.33, w: 0.35, h: 0.08, col: 0x424242 }
+      ];
+
+      buttonsConfig.forEach(cfg => {
+        const btnMesh = create3DButtonMesh(cfg.label, cfg.w, cfg.h, cfg.col);
+        btnMesh.position.set(cfg.x, cfg.y, 0.02);
+        btnMesh.userData = { action: cfg.action };
+        ar3DMenuGroup.add(btnMesh);
+        ar3DButtons.push(btnMesh);
+      });
+
+      scene.add(ar3DMenuGroup);
+    }
+
+    function create3DButtonMesh(text, width, height, colorHex) {
+      const btnGroup = new THREE.Group();
+
+      const bgGeo = new THREE.PlaneGeometry(width, height);
+      const bgMat = new THREE.MeshBasicMaterial({ color: colorHex, side: THREE.DoubleSide });
+      const bgMesh = new THREE.Mesh(bgGeo, bgMat);
+      btnGroup.add(bgMesh);
+
+      // Draw Label on Canvas
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 64;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'Bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, 128, 32);
+
+      const tex = new THREE.CanvasTexture(c);
+      const txtGeo = new THREE.PlaneGeometry(width * 0.95, height * 0.95);
+      const txtMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true });
+      const txtMesh = new THREE.Mesh(txtGeo, txtMat);
+      txtMesh.position.z = 0.005;
+      btnGroup.add(txtMesh);
+
+      btnGroup.userData = { isButton: true };
+      return btnGroup;
+    }
+
+    function update3DHUDCanvas() {
+      if (!hudContext || !modelGroup) return;
+
+      hudContext.clearRect(0, 0, 512, 256);
+      hudContext.fillStyle = '#1e1e1e';
+      hudContext.fillRect(0, 0, 512, 256);
+
+      hudContext.strokeStyle = '#4CAF50';
+      hudContext.lineWidth = 6;
+      hudContext.strokeRect(0, 0, 512, 256);
+
+      hudContext.fillStyle = '#00E676';
+      hudContext.font = 'Bold 28px Monospace';
+      hudContext.fillText(`Pos X: ${modelGroup.position.x.toFixed(2)}m`, 20, 50);
+      hudContext.fillText(`Pos Y: ${modelGroup.position.y.toFixed(2)}m`, 20, 90);
+      hudContext.fillText(`Pos Z: ${modelGroup.position.z.toFixed(2)}m`, 20, 130);
+
+      const ry = THREE.MathUtils.radToDeg(modelGroup.rotation.y).toFixed(1);
+      const sc = Math.round(modelGroup.scale.x * 100);
+
+      hudContext.fillText(`Rot Y: ${ry}°`, 280, 50);
+      hudContext.fillText(`Scale: ${sc}%`, 280, 90);
+
+      hudContext.fillStyle = isLocked ? '#ff5252' : '#69f0ae';
+      hudContext.fillText(isLocked ? 'STATUS: LOCKED' : 'STATUS: UNLOCKED', 20, 200);
+
+      hudTexture.needsUpdate = true;
     }
 
     async function onStartAR() {
@@ -345,8 +405,7 @@
               renderer.compile(scene, camera);
 
               xrSession = await navigator.xr.requestSession('immersive-ar', {
-                optionalFeatures: ['local-floor', 'dom-overlay'],
-                domOverlay: { root: document.getElementById('overlay-root') }
+                optionalFeatures: ['local-floor']
               });
 
               renderer.xr.setSession(xrSession);
@@ -355,21 +414,30 @@
               renderer.setClearColor(0x000000, 0);
               document.body.style.backgroundColor = 'transparent';
               document.getElementById('custom-ar-button').style.display = 'none';
+              document.getElementById('ui-container').style.display = 'none';
+
+              // Position 3D Menu 1.2 meters in front of the headset
+              ar3DMenuGroup.position.set(0, 1.4, -1.2);
+              ar3DMenuGroup.rotation.set(0, 0, 0);
+              ar3DMenuGroup.visible = true;
+
+              if (laserLine) laserLine.visible = true;
 
               if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
-                updateUIFieldsFromModel();
               }
+
+              update3DHUDCanvas();
 
               xrSession.addEventListener('end', () => {
                 xrSession = null;
                 scene.background = new THREE.Color(0x111111);
                 document.body.style.backgroundColor = '#111111';
                 document.getElementById('custom-ar-button').style.display = 'block';
-                
-                // Ensure Raycast mode turns off if they exit AR
-                if(isRaycastMode) toggleRaycastPlacement();
+                document.getElementById('ui-container').style.display = 'block';
+                ar3DMenuGroup.visible = false;
+                if (laserLine) laserLine.visible = false;
               });
             }
           } else {
@@ -380,11 +448,6 @@
           alert("AR Session Error: " + err.message);
         }
       }
-    }
-
-    function toggleUIVisibility() {
-      const ui = document.getElementById('ui-container');
-      ui.style.display = (ui.style.display === 'none') ? 'block' : 'none';
     }
 
     function loadModel(filename) {
@@ -427,13 +490,12 @@
             }
           });
 
-          // Auto-Scale check
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           
           const maxDimension = Math.max(size.x, size.y, size.z);
           if (maxDimension > 50) { 
-            const scaleFactor = 0.0254; // Inches to Meters
+            const scaleFactor = 0.0254;
             currentModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
           }
 
@@ -441,7 +503,6 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // Align origin
           currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
@@ -460,7 +521,7 @@
           arBtn.disabled = false;
           arBtn.innerText = "START AR";
 
-          updateUIFieldsFromModel();
+          update3DHUDCanvas();
         },
         (xhr) => {
           if (xhr.lengthComputable) {
@@ -471,24 +532,57 @@
       );
     }
 
-    // Toggle Floor Raycast Marking Mode
-    function toggleRaycastPlacement() {
-      isRaycastMode = !isRaycastMode;
-      const btn = document.getElementById('raycast-btn');
+    // --- XR TRIGGER RAYCASTING & 3D MENU CLICK HANDLER ---
+    function onControllerSelect() {
+      if (renderer.xr.isPresenting && controllerRight) {
+        const tempMatrix = new THREE.Matrix4();
+        tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
 
-      if (isRaycastMode) {
-        btn.innerText = "🎯 Raycasting Floor...";
-        btn.classList.add('btn-active');
-        if (laserLine) laserLine.visible = true;
-      } else {
-        btn.innerText = "🎯 Raycast Floor Mark";
-        btn.classList.remove('btn-active');
-        if (laserLine) laserLine.visible = false;
-        if (floorReticle) floorReticle.visible = false;
+        const rayOrigin = new THREE.Vector3();
+        controllerRight.getWorldPosition(rayOrigin);
+        const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
+
+        raycaster.set(rayOrigin, rayDir);
+
+        // 1. Check Intersection with 3D Menu Buttons
+        if (ar3DMenuGroup.visible) {
+          const intersects = raycaster.intersectObjects(ar3DButtons, true);
+          if (intersects.length > 0) {
+            let clickedObj = intersects[0].object;
+            while (clickedObj.parent && !clickedObj.userData.action) {
+              clickedObj = clickedObj.parent;
+            }
+            if (clickedObj.userData && clickedObj.userData.action) {
+              execute3DMenuAction(clickedObj.userData.action);
+              return;
+            }
+          }
+        }
+
+        // 2. Check Raycast Floor Marking
+        if (isRaycastMode && floorReticle.visible && modelGroup) {
+          modelGroup.position.copy(floorReticle.position);
+          toggleRaycastPlacement();
+          update3DHUDCanvas();
+        }
       }
     }
 
-    // Update Raycast Target
+    function execute3DMenuAction(action) {
+      if (action === 'raycast') toggleRaycastPlacement();
+      else if (action === 'lock') toggleLockPosition();
+      else if (action === 'roty-') rotateModelY(-15);
+      else if (action === 'roty+') rotateModelY(15);
+      else if (action === 'h+') moveHeight(0.1);
+      else if (action === 'h-') moveHeight(-0.1);
+      else if (action === 's+') adjustScale(1.05);
+      else if (action === 's-') adjustScale(0.95);
+      else if (action === 'ghost') toggleGhostMode();
+      else if (action === 'reset') resetTransforms();
+
+      update3DHUDCanvas();
+    }
+
     function updateRaycast() {
       if (renderer.xr.isPresenting && isRaycastMode && controllerRight) {
         const tempMatrix = new THREE.Matrix4();
@@ -509,85 +603,34 @@
       }
     }
 
-    // XR Trigger Pull
-    function onControllerSelect() {
-      if (isMeasuring) {
-        handleMeasurementPoint();
-      } else if (isRaycastMode && floorReticle.visible && modelGroup) {
-        // Snap Model Origin to Floor Reticle
-        modelGroup.position.copy(floorReticle.position);
-        updateUIFieldsFromModel();
-        
-        // Turn off raycast mode automatically
-        toggleRaycastPlacement();
+    function toggleRaycastPlacement() {
+      isRaycastMode = !isRaycastMode;
+      if (!isRaycastMode && floorReticle) floorReticle.visible = false;
+    }
+
+    function rotateModelY(deg) {
+      if (modelGroup) {
+        modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
+        update3DHUDCanvas();
       }
     }
 
-    // DIRECT NUMERIC INPUT CONTROLS
-    function onDirectTransformChange() {
-      if (!modelGroup) return;
-
-      const px = parseFloat(document.getElementById('pos-x').value) || 0;
-      const py = parseFloat(document.getElementById('pos-y').value) || 0;
-      const pz = parseFloat(document.getElementById('pos-z').value) || 0;
-
-      const ry = parseFloat(document.getElementById('rot-y').value) || 0;
-      const rx = parseFloat(document.getElementById('rot-x').value) || 0;
-
-      const scaleP = parseFloat(document.getElementById('scale-val').value) || 100;
-      const scaleFactor = Math.max(scaleP, 1) / 100;
-
-      modelGroup.position.set(px, py, pz);
-      modelGroup.rotation.y = THREE.MathUtils.degToRad(ry);
-      modelGroup.rotation.x = THREE.MathUtils.degToRad(rx);
-      modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
-
-      document.getElementById('slider-rot-y').value = ry;
-      document.getElementById('slider-rot-x').value = rx;
-      document.getElementById('slider-scale').value = scaleP;
+    function moveHeight(deltaY) {
+      if (modelGroup) {
+        modelGroup.position.y += deltaY;
+        update3DHUDCanvas();
+      }
     }
 
-    function onSliderChange(type, value) {
-      if (type === 'rot-y') document.getElementById('rot-y').value = value;
-      else if (type === 'rot-x') document.getElementById('rot-x').value = value;
-      else if (type === 'scale') document.getElementById('scale-val').value = value;
-      onDirectTransformChange();
-    }
-
-    function updateUIFieldsFromModel() {
-      if (!modelGroup) return;
-
-      document.getElementById('pos-x').value = modelGroup.position.x.toFixed(2);
-      document.getElementById('pos-y').value = modelGroup.position.y.toFixed(2);
-      document.getElementById('pos-z').value = modelGroup.position.z.toFixed(2);
-
-      const ry = THREE.MathUtils.radToDeg(modelGroup.rotation.y).toFixed(1);
-      const rx = THREE.MathUtils.radToDeg(modelGroup.rotation.x).toFixed(1);
-      const scaleP = Math.round(modelGroup.scale.x * 100);
-
-      document.getElementById('rot-y').value = ry;
-      document.getElementById('slider-rot-y').value = ry;
-
-      document.getElementById('rot-x').value = rx;
-      document.getElementById('slider-rot-x').value = rx;
-
-      document.getElementById('scale-val').value = scaleP;
-      document.getElementById('slider-scale').value = scaleP;
-    }
-
-    function toggleAxesHelper() {
-      showAxes = !showAxes;
-      if (axesHelper) axesHelper.visible = showAxes;
-
-      const btn = document.getElementById('axes-btn');
-      btn.innerText = showAxes ? "📐 Axes (RGB) ON" : "📐 Axes OFF";
-      btn.classList.toggle('btn-active', showAxes);
+    function adjustScale(factor) {
+      if (modelGroup) {
+        modelGroup.scale.multiplyScalar(factor);
+        update3DHUDCanvas();
+      }
     }
 
     function toggleGhostMode() {
       isGhostMode = !isGhostMode;
-      const btn = document.getElementById('ghost-btn');
-
       if (currentModel) {
         currentModel.traverse((child) => {
           if (child.isMesh && child.material) {
@@ -596,18 +639,23 @@
           }
         });
       }
-
-      btn.innerText = isGhostMode ? "👻 Opaque Mode" : "👻 Ghost Mode";
-      btn.classList.toggle('btn-active', isGhostMode);
     }
 
     function toggleLockPosition() {
       isLocked = !isLocked;
-      const btn = document.getElementById('lock-btn');
-      btn.innerText = isLocked ? "🔓 Position Locked" : "🔒 Lock Position";
-      btn.classList.toggle('btn-active', isLocked);
+      update3DHUDCanvas();
     }
 
+    function resetTransforms() {
+      if (modelGroup) {
+        modelGroup.position.set(0, 0, -2);
+        modelGroup.rotation.set(0, 0, 0);
+        modelGroup.scale.set(1, 1, 1);
+        update3DHUDCanvas();
+      }
+    }
+
+    // Toggle 3D AR Menu visibility via Left Controller X / Y Button
     function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
         const session = renderer.xr.getSession();
@@ -617,100 +665,13 @@
               const buttons = source.gamepad.buttons;
               const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
               
-              if (btnPressed && !prevLeftBtnState) toggleUIVisibility();
+              if (btnPressed && !prevLeftBtnState) {
+                ar3DMenuGroup.visible = !ar3DMenuGroup.visible;
+              }
               prevLeftBtnState = btnPressed;
             }
           }
         }
-      }
-    }
-
-    function addMediaFrame(type) {
-      const urlInput = document.getElementById('media-url').value.trim();
-      if (!urlInput) {
-        alert("Please paste a valid image or video URL.");
-        return;
-      }
-
-      const planeGeo = new THREE.PlaneGeometry(1.2, 0.8);
-      let planeMat;
-
-      if (type === 'image') {
-        const texture = new THREE.TextureLoader().load(urlInput);
-        texture.encoding = THREE.sRGBEncoding;
-        planeMat = new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide });
-      } else if (type === 'video') {
-        const video = document.createElement('video');
-        video.src = urlInput;
-        video.crossOrigin = 'anonymous';
-        video.loop = true;
-        video.muted = true;
-        video.play();
-
-        const videoTexture = new THREE.VideoTexture(video);
-        videoTexture.encoding = THREE.sRGBEncoding;
-        planeMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
-      }
-
-      const frameMesh = new THREE.Mesh(planeGeo, planeMat);
-
-      if (renderer.xr.isPresenting && controllerRight) {
-        controllerRight.getWorldPosition(frameMesh.position);
-      } else {
-        frameMesh.position.set(0, 1.5, -1.5);
-      }
-      scene.add(frameMesh);
-      alert(`${type.toUpperCase()} frame created!`);
-    }
-
-    function toggleMeasureTool() {
-      isMeasuring = !isMeasuring;
-      const btn = document.getElementById('measure-btn');
-      btn.innerText = isMeasuring ? "📏 Measuring..." : "📐 Start Measure";
-      btn.classList.toggle('btn-active', isMeasuring);
-      if (isMeasuring) measurePoints = [];
-    }
-
-    function handleMeasurementPoint() {
-      const point = new THREE.Vector3();
-      controllerRight.getWorldPosition(point);
-
-      const sphereGeo = new THREE.SphereGeometry(0.02, 16, 16);
-      const sphereMat = new THREE.MeshBasicMaterial({ color: 0xFFEB3B });
-      const marker = new THREE.Mesh(sphereGeo, sphereMat);
-      marker.position.copy(point);
-      measureGroup.add(marker);
-
-      measurePoints.push(point);
-
-      if (measurePoints.length === 2) {
-        const distance = measurePoints[0].distanceTo(measurePoints[1]);
-        const distMeters = distance.toFixed(2);
-        const distFeet = (distance * 3.28084).toFixed(2);
-
-        const lineMat = new THREE.LineBasicMaterial({ color: 0xFFEB3B, linewidth: 3 });
-        const lineGeo = new THREE.BufferGeometry().setFromPoints(measurePoints);
-        const line = new THREE.Line(lineGeo, lineMat);
-        measureGroup.add(line);
-
-        alert(`Measured Distance: ${distMeters} m (${distFeet} ft)`);
-        measurePoints = [];
-      }
-    }
-
-    function clearMeasurements() {
-      while (measureGroup.children.length > 0) {
-        measureGroup.remove(measureGroup.children[0]);
-      }
-      measurePoints = [];
-    }
-
-    function resetTransforms() {
-      if (modelGroup) {
-        modelGroup.position.set(0, 0, -2);
-        modelGroup.rotation.set(0, 0, 0);
-        modelGroup.scale.set(1, 1, 1);
-        updateUIFieldsFromModel();
       }
     }
 
