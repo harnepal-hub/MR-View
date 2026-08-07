@@ -15,6 +15,7 @@
       background-color: #111111;
       color: #ffffff;
     }
+    /* WebXR Overlay Root Boundary */
     #overlay-root {
       position: absolute;
       top: 0;
@@ -28,30 +29,41 @@
       position: absolute;
       top: 15px;
       left: 15px;
-      background: rgba(0, 0, 0, 0.88);
+      background: rgba(0, 0, 0, 0.90);
       padding: 16px;
       border-radius: 10px;
-      width: 310px;
-      max-height: 85vh;
+      width: 320px;
+      max-height: 88vh;
       overflow-y: auto;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.6);
       pointer-events: auto;
       display: block;
     }
     h2 { margin: 0 0 8px 0; font-size: 17px; color: #4CAF50; }
     h3 { margin: 12px 0 6px 0; font-size: 13px; color: #81C784; border-bottom: 1px solid #333; padding-bottom: 4px; }
-    label { font-size: 12px; font-weight: bold; }
-    select, input[type="text"] {
+    label { font-size: 11px; font-weight: bold; color: #ddd; }
+    select, input[type="text"], input[type="number"] {
       width: 100%;
       padding: 6px;
-      margin-top: 4px;
-      margin-bottom: 8px;
+      margin-top: 3px;
+      margin-bottom: 6px;
       border-radius: 5px;
       border: 1px solid #555;
       background: #222;
       color: #fff;
       font-size: 12px;
       box-sizing: border-box;
+    }
+    input[type="range"] {
+      width: 100%;
+      margin: 2px 0 8px 0;
+      accent-color: #4CAF50;
+    }
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 6px;
     }
     .control-group {
       display: flex;
@@ -77,20 +89,9 @@
     #status-msg {
       font-size: 11px;
       color: #ff9800;
-      margin-top: 4px;
+      margin-top: 2px;
       margin-bottom: 8px;
       word-break: break-all;
-    }
-    #coord-hud {
-      background: #1e1e1e;
-      border: 1px solid #444;
-      padding: 8px;
-      border-radius: 6px;
-      font-family: monospace;
-      font-size: 11px;
-      color: #00E676;
-      margin-bottom: 8px;
-      line-height: 1.4;
     }
     .instructions {
       font-size: 11px;
@@ -149,12 +150,38 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>Live Coordinates & Alignment</h3>
-      <div id="coord-hud">
-        Pos X: 0.00 m | Y: 0.00 m | Z: 0.00 m<br>
-        Rot Y: 0.0° | Rot X: 0.0°<br>
-        Scale: 100%
+      <h3>1. Direct Numeric Transform Controls</h3>
+      
+      <!-- Editable Position Inputs -->
+      <label>Position (Meters):</label>
+      <div class="input-grid">
+        <div>
+          <label>X (Width)</label>
+          <input type="number" id="pos-x" step="0.05" value="0.00" oninput="onDirectTransformChange()">
+        </div>
+        <div>
+          <label>Y (Height)</label>
+          <input type="number" id="pos-y" step="0.05" value="0.00" oninput="onDirectTransformChange()">
+        </div>
+        <div>
+          <label>Z (Depth)</label>
+          <input type="number" id="pos-z" step="0.05" value="-2.00" oninput="onDirectTransformChange()">
+        </div>
       </div>
+
+      <!-- Editable Rotation Inputs & Sliders -->
+      <label>Rotation Y - Horizontal (°):</label>
+      <input type="number" id="rot-y" step="1" value="0" oninput="onDirectTransformChange()">
+      <input type="range" id="slider-rot-y" min="-180" max="180" value="0" oninput="onSliderChange('rot-y', this.value)">
+
+      <label>Rotation X - Tilt (°):</label>
+      <input type="number" id="rot-x" step="1" value="0" oninput="onDirectTransformChange()">
+      <input type="range" id="slider-rot-x" min="-90" max="90" value="0" oninput="onSliderChange('rot-x', this.value)">
+
+      <!-- Editable Scale Input & Slider -->
+      <label>Scale (%):</label>
+      <input type="number" id="scale-val" step="1" value="100" oninput="onDirectTransformChange()">
+      <input type="range" id="slider-scale" min="10" max="500" value="100" oninput="onSliderChange('scale', this.value)">
 
       <div class="control-group">
         <button class="btn" onclick="autoPlaceOnSite(event)">📍 Auto-Place on Site</button>
@@ -164,37 +191,7 @@
       <div class="control-group">
         <button id="axes-btn" class="btn btn-active" onclick="toggleAxesHelper(event)">📐 Axes (RGB) ON</button>
         <button id="ghost-btn" class="btn" onclick="toggleGhostMode(event)">👻 Ghost Mode</button>
-      </div>
-
-      <label>Rotate Y-Axis (Yaw / Horizontal):</label>
-      <div class="control-group">
-        <button class="btn" onclick="rotateModelY(-15, event)">↺ -15°</button>
-        <button class="btn" onclick="rotateModelY(-5, event)">↺ -5°</button>
-        <button class="btn" onclick="rotateModelY(5, event)">↻ +5°</button>
-        <button class="btn" onclick="rotateModelY(15, event)">↻ +15°</button>
-      </div>
-
-      <label>Rotate X-Axis (Pitch / Tilt):</label>
-      <div class="control-group">
-        <button class="btn" onclick="rotateModelX(-15, event)">↺ -15°</button>
-        <button class="btn" onclick="rotateModelX(-5, event)">↺ -5°</button>
-        <button class="btn" onclick="rotateModelX(5, event)">↻ +5°</button>
-        <button class="btn" onclick="rotateModelX(15, event)">↻ +15°</button>
-      </div>
-
-      <label>Height Adjustment:</label>
-      <div class="control-group">
-        <button class="btn" onclick="moveHeight(-0.5, event)">▼ -50cm</button>
-        <button class="btn" onclick="moveHeight(-0.1, event)">▼ -10cm</button>
-        <button class="btn" onclick="moveHeight(0.1, event)">▲ +10cm</button>
-        <button class="btn" onclick="moveHeight(0.5, event)">▲ +50cm</button>
-      </div>
-
-      <label>Scale Calibration:</label>
-      <div class="control-group">
-        <button class="btn" onclick="adjustScale(0.95, event)">- 5%</button>
         <button class="btn" onclick="resetTransforms(event)">Reset</button>
-        <button class="btn" onclick="adjustScale(1.05, event)">+ 5%</button>
       </div>
 
       <h3>2. Add Media Frames</h3>
@@ -205,16 +202,16 @@
         <button class="btn" onclick="addMediaFrame('video', event)">+ Add Video</button>
       </div>
 
-      <h3>3. Measure Tool</h3>
+      <h3>3. Real-World Measure Tool</h3>
       <div class="control-group">
         <button id="measure-btn" class="btn" onclick="toggleMeasureTool(event)">📐 Start Measure</button>
         <button class="btn" onclick="clearMeasurements(event)">Clear</button>
       </div>
 
       <div class="instructions">
-        • <b>RGB Axes:</b> Red = X (Width), Green = Y (Height), Blue = Z (Depth).<br>
-        • <b>Auto-Place:</b> Aim right controller at real site floor and click.<br>
-        • <b>Left Controller X / Y:</b> Show/Hide HUD in AR.
+        • <b>Type or Drag:</b> Directly edit X, Y, Z, Rotation, or Scale values.<br>
+        • <b>Left Controller X / Y:</b> Show/Hide Menu in AR.<br>
+        • <b>Desktop Key 'M':</b> Toggle Menu on PC.
       </div>
     </div>
 
@@ -260,11 +257,11 @@
       measureGroup = new THREE.Group();
       scene.add(measureGroup);
 
-      // Visual 3D RGB Axes Helper (1.5m length)
+      // 3D RGB Axes Helper
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
 
-      // 2. Lighting Setup
+      // 2. Soft Architectural Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -352,6 +349,7 @@
               if (modelGroup && !isLocked) {
                 modelGroup.position.set(0, 0, -2);
                 modelGroup.rotation.set(0, 0, 0);
+                updateUIFieldsFromModel();
               }
 
               xrSession.addEventListener('end', () => {
@@ -435,7 +433,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // Align entrance threshold (max Z) at 0, floor (min Y) at 0, center width (X)
+          // Entrance threshold (max Z) at 0, floor (min Y) at 0, center width (X)
           currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
@@ -454,7 +452,7 @@
           arBtn.disabled = false;
           arBtn.innerText = "START AR";
 
-          updateHUD();
+          updateUIFieldsFromModel();
         },
         (xhr) => {
           if (xhr.lengthComputable) {
@@ -471,23 +469,65 @@
       );
     }
 
-    // Live HUD Coordinate Display
-    function updateHUD() {
-      const hud = document.getElementById('coord-hud');
-      if (!hud || !modelGroup) return;
+    // --- DIRECT NUMERIC INPUT CONTROLS ---
+    function onDirectTransformChange() {
+      if (!modelGroup) return;
 
-      const posX = modelGroup.position.x.toFixed(2);
-      const posY = modelGroup.position.y.toFixed(2);
-      const posZ = modelGroup.position.z.toFixed(2);
+      const px = parseFloat(document.getElementById('pos-x').value) || 0;
+      const py = parseFloat(document.getElementById('pos-y').value) || 0;
+      const pz = parseFloat(document.getElementById('pos-z').value) || 0;
 
-      const rotY = THREE.MathUtils.radToDeg(modelGroup.rotation.y).toFixed(1);
-      const rotX = THREE.MathUtils.radToDeg(modelGroup.rotation.x).toFixed(1);
-      const scaleP = Math.round(modelGroup.scale.x * 100);
+      const ry = parseFloat(document.getElementById('rot-y').value) || 0;
+      const rx = parseFloat(document.getElementById('rot-x').value) || 0;
 
-      hud.innerHTML = `Pos X: ${posX}m | Y: ${posY}m | Z: ${posZ}m<br>Rot Y: ${rotY}° | Rot X: ${rotX}°<br>Scale: ${scaleP}%`;
+      const scaleP = parseFloat(document.getElementById('scale-val').value) || 100;
+      const scaleFactor = Math.max(scaleP, 1) / 100;
+
+      modelGroup.position.set(px, py, pz);
+      modelGroup.rotation.y = THREE.MathUtils.degToRad(ry);
+      modelGroup.rotation.x = THREE.MathUtils.degToRad(rx);
+      modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
+
+      // Sync sliders
+      document.getElementById('slider-rot-y').value = ry;
+      document.getElementById('slider-rot-x').value = rx;
+      document.getElementById('slider-scale').value = scaleP;
     }
 
-    // Toggle 3D Visual Axes Helper
+    function onSliderChange(type, value) {
+      if (type === 'rot-y') {
+        document.getElementById('rot-y').value = value;
+      } else if (type === 'rot-x') {
+        document.getElementById('rot-x').value = value;
+      } else if (type === 'scale') {
+        document.getElementById('scale-val').value = value;
+      }
+      onDirectTransformChange();
+    }
+
+    // Sync input fields when model is moved by controller
+    function updateUIFieldsFromModel() {
+      if (!modelGroup) return;
+
+      document.getElementById('pos-x').value = modelGroup.position.x.toFixed(2);
+      document.getElementById('pos-y').value = modelGroup.position.y.toFixed(2);
+      document.getElementById('pos-z').value = modelGroup.position.z.toFixed(2);
+
+      const ry = THREE.MathUtils.radToDeg(modelGroup.rotation.y).toFixed(1);
+      const rx = THREE.MathUtils.radToDeg(modelGroup.rotation.x).toFixed(1);
+      const scaleP = Math.round(modelGroup.scale.x * 100);
+
+      document.getElementById('rot-y').value = ry;
+      document.getElementById('slider-rot-y').value = ry;
+
+      document.getElementById('rot-x').value = rx;
+      document.getElementById('slider-rot-x').value = rx;
+
+      document.getElementById('scale-val').value = scaleP;
+      document.getElementById('slider-scale').value = scaleP;
+    }
+
+    // Toggle 3D RGB Axes Helper
     function toggleAxesHelper(e) {
       if (e) e.stopPropagation();
       showAxes = !showAxes;
@@ -514,7 +554,7 @@
 
         modelGroup.position.copy(targetPos);
         modelGroup.quaternion.copy(targetRot);
-        updateHUD();
+        updateUIFieldsFromModel();
       }
     }
 
@@ -551,7 +591,7 @@
 
     function onGripEnd() {
       isGrabbing = false;
-      updateHUD();
+      updateUIFieldsFromModel();
     }
 
     function updateGrabPosition() {
@@ -563,11 +603,11 @@
 
         modelGroup.position.copy(controllerPos);
         modelGroup.quaternion.copy(controllerRot);
-        updateHUD();
+        updateUIFieldsFromModel();
       }
     }
 
-    // Lock/Unlock Spatial Position
+    // Lock/Unlock Position
     function toggleLockPosition(e) {
       if (e) e.stopPropagation();
       isLocked = !isLocked;
@@ -698,46 +738,13 @@
       measurePoints = [];
     }
 
-    // Transformation Controls
-    function rotateModelY(deg, e) {
-      if (e) e.stopPropagation();
-      if (modelGroup) {
-        modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
-        updateHUD();
-      }
-    }
-
-    function rotateModelX(deg, e) {
-      if (e) e.stopPropagation();
-      if (modelGroup) {
-        modelGroup.rotation.x += THREE.MathUtils.degToRad(deg);
-        updateHUD();
-      }
-    }
-
-    function moveHeight(deltaY, e) {
-      if (e) e.stopPropagation();
-      if (modelGroup) {
-        modelGroup.position.y += deltaY;
-        updateHUD();
-      }
-    }
-
-    function adjustScale(factor, e) {
-      if (e) e.stopPropagation();
-      if (modelGroup) {
-        modelGroup.scale.multiplyScalar(factor);
-        updateHUD();
-      }
-    }
-
     function resetTransforms(e) {
       if (e) e.stopPropagation();
       if (modelGroup) {
         modelGroup.position.set(0, 0, -2);
         modelGroup.rotation.set(0, 0, 0);
         modelGroup.scale.set(1, 1, 1);
-        updateHUD();
+        updateUIFieldsFromModel();
       }
     }
 
