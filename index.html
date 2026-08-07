@@ -15,7 +15,6 @@
       background-color: #111111;
       color: #ffffff;
     }
-    /* WebXR Overlay Root Boundary */
     #overlay-root {
       position: absolute;
       top: 0;
@@ -150,8 +149,13 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Direct Numeric Transform Controls</h3>
+      <h3>1. Floor Raycast & Numeric Transforms</h3>
       
+      <div class="control-group">
+        <button id="raycast-btn" class="btn" onclick="toggleRaycastPlacement(event)">🎯 Raycast Floor Mark</button>
+        <button id="lock-btn" class="btn" onclick="toggleLockPosition(event)">🔒 Lock Position</button>
+      </div>
+
       <!-- Editable Position Inputs -->
       <label>Position (Meters):</label>
       <div class="input-grid">
@@ -184,11 +188,6 @@
       <input type="range" id="slider-scale" min="10" max="500" value="100" oninput="onSliderChange('scale', this.value)">
 
       <div class="control-group">
-        <button class="btn" onclick="autoPlaceOnSite(event)">📍 Auto-Place on Site</button>
-        <button id="lock-btn" class="btn" onclick="toggleLockPosition(event)">🔒 Lock Position</button>
-      </div>
-
-      <div class="control-group">
         <button id="axes-btn" class="btn btn-active" onclick="toggleAxesHelper(event)">📐 Axes (RGB) ON</button>
         <button id="ghost-btn" class="btn" onclick="toggleGhostMode(event)">👻 Ghost Mode</button>
         <button class="btn" onclick="resetTransforms(event)">Reset</button>
@@ -209,9 +208,8 @@
       </div>
 
       <div class="instructions">
-        • <b>Type or Drag:</b> Directly edit X, Y, Z, Rotation, or Scale values.<br>
-        • <b>Left Controller X / Y:</b> Show/Hide Menu in AR.<br>
-        • <b>Desktop Key 'M':</b> Toggle Menu on PC.
+        • <b>Raycast Floor Mark:</b> Point laser at real floor and pull right trigger to place.<br>
+        • <b>Direct Edits:</b> Type exact numbers into X, Y, Z or drag sliders.
       </div>
     </div>
 
@@ -223,13 +221,21 @@
     let currentModel = null;
     let modelGroup = null;
     let axesHelper = null;
+    let floorReticle = null;
+    let laserLine = null;
+
     let xrSession = null;
     let isModelReady = false;
     let isLocked = false;
     let isGhostMode = false;
-    let isGrabbing = false;
+    let isRaycastMode = false;
     let showAxes = true;
     
+    // Raycaster Floor Intersection
+    const raycaster = new THREE.Raycaster();
+    const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Y = 0 floor
+    const rayIntersectionPoint = new THREE.Vector3();
+
     // Measurement Tool
     let isMeasuring = false;
     let measurePoints = [];
@@ -261,6 +267,14 @@
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
 
+      // Floor Target Reticle (Green Ring)
+      const ringGeo = new THREE.RingGeometry(0.12, 0.16, 32);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00E676, side: THREE.DoubleSide });
+      floorReticle = new THREE.Mesh(ringGeo, ringMat);
+      floorReticle.visible = false;
+      scene.add(floorReticle);
+
       // 2. Soft Architectural Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
@@ -286,24 +300,29 @@
       renderer.xr.setReferenceSpaceType('local-floor');
       document.body.appendChild(renderer.domElement);
 
-      // 4. Orbit Controls (Desktop View)
+      // 4. Orbit Controls
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
       orbitControls.enableDamping = true;
 
-      // 5. Controller Setup
+      // 5. Controllers
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
       controllerRight = renderer.xr.getController(0);
       controllerRight.addEventListener('select', onControllerSelect);
-      controllerRight.addEventListener('squeezestart', onGripStart);
-      controllerRight.addEventListener('squeezeend', onGripEnd);
       scene.add(controllerRight);
+
+      // Laser Pointer Line attached to Right Controller
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
+      const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.7 });
+      laserLine = new THREE.Line(lineGeo, lineMat);
+      laserLine.visible = false;
+      controllerRight.add(laserLine);
 
       controllerLeft = renderer.xr.getController(1);
       scene.add(controllerLeft);
 
-      // Desktop 'M' key shortcut
+      // Desktop 'M' shortcut
       window.addEventListener('keydown', (e) => {
         if (e.key === 'm' || e.key === 'M') {
           toggleUIVisibility();
@@ -372,11 +391,7 @@
 
     function toggleUIVisibility() {
       const ui = document.getElementById('ui-container');
-      if (ui.style.display === 'none') {
-        ui.style.display = 'block';
-      } else {
-        ui.style.display = 'none';
-      }
+      ui.style.display = (ui.style.display === 'none') ? 'block' : 'none';
     }
 
     function loadModel(filename) {
@@ -433,7 +448,7 @@
           const center = box.getCenter(new THREE.Vector3());
           const finalSize = box.getSize(new THREE.Vector3());
 
-          // Entrance threshold (max Z) at 0, floor (min Y) at 0, center width (X)
+          // Set origin at front entrance threshold
           currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
@@ -469,7 +484,58 @@
       );
     }
 
-    // --- DIRECT NUMERIC INPUT CONTROLS ---
+    // Toggle Floor Raycast Marking Mode
+    function toggleRaycastPlacement(e) {
+      if (e) e.stopPropagation();
+      isRaycastMode = !isRaycastMode;
+      const btn = document.getElementById('raycast-btn');
+
+      if (isRaycastMode) {
+        btn.innerText = "🎯 Raycasting Floor...";
+        btn.classList.add('btn-active');
+        if (laserLine) laserLine.visible = true;
+      } else {
+        btn.innerText = "🎯 Raycast Floor Mark";
+        btn.classList.remove('btn-active');
+        if (laserLine) laserLine.visible = false;
+        if (floorReticle) floorReticle.visible = false;
+      }
+    }
+
+    // Update Raycast Target Reticle on Floor ($Y = 0$)
+    function updateRaycast() {
+      if (renderer.xr.isPresenting && isRaycastMode && controllerRight) {
+        const tempMatrix = new THREE.Matrix4();
+        tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
+
+        const rayOrigin = new THREE.Vector3();
+        controllerRight.getWorldPosition(rayOrigin);
+        const rayDir = new THREE.Vector3(0, 0, -1).applyMatrix4(tempMatrix);
+
+        raycaster.set(rayOrigin, rayDir);
+
+        if (raycaster.ray.intersectPlane(floorPlane, rayIntersectionPoint)) {
+          floorReticle.position.copy(rayIntersectionPoint);
+          floorReticle.visible = true;
+        }
+      }
+    }
+
+    // Right Trigger Click Handler
+    function onControllerSelect() {
+      if (isMeasuring) {
+        handleMeasurementPoint();
+      } else if (isRaycastMode && floorReticle.visible && modelGroup) {
+        // Snap Entrance Origin to marked floor point
+        modelGroup.position.copy(floorReticle.position);
+        updateUIFieldsFromModel();
+
+        // Turn off raycast mode after placing
+        toggleRaycastPlacement(null);
+      }
+    }
+
+    // DIRECT NUMERIC INPUT CONTROLS
     function onDirectTransformChange() {
       if (!modelGroup) return;
 
@@ -488,24 +554,18 @@
       modelGroup.rotation.x = THREE.MathUtils.degToRad(rx);
       modelGroup.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-      // Sync sliders
       document.getElementById('slider-rot-y').value = ry;
       document.getElementById('slider-rot-x').value = rx;
       document.getElementById('slider-scale').value = scaleP;
     }
 
     function onSliderChange(type, value) {
-      if (type === 'rot-y') {
-        document.getElementById('rot-y').value = value;
-      } else if (type === 'rot-x') {
-        document.getElementById('rot-x').value = value;
-      } else if (type === 'scale') {
-        document.getElementById('scale-val').value = value;
-      }
+      if (type === 'rot-y') document.getElementById('rot-y').value = value;
+      else if (type === 'rot-x') document.getElementById('rot-x').value = value;
+      else if (type === 'scale') document.getElementById('scale-val').value = value;
       onDirectTransformChange();
     }
 
-    // Sync input fields when model is moved by controller
     function updateUIFieldsFromModel() {
       if (!modelGroup) return;
 
@@ -527,38 +587,16 @@
       document.getElementById('slider-scale').value = scaleP;
     }
 
-    // Toggle 3D RGB Axes Helper
     function toggleAxesHelper(e) {
       if (e) e.stopPropagation();
       showAxes = !showAxes;
       if (axesHelper) axesHelper.visible = showAxes;
 
       const btn = document.getElementById('axes-btn');
-      if (showAxes) {
-        btn.innerText = "📐 Axes (RGB) ON";
-        btn.classList.add('btn-active');
-      } else {
-        btn.innerText = "📐 Axes OFF";
-        btn.classList.remove('btn-active');
-      }
+      btn.innerText = showAxes ? "📐 Axes (RGB) ON" : "📐 Axes OFF";
+      btn.classList.toggle('btn-active', showAxes);
     }
 
-    // Site Auto-Placement
-    function autoPlaceOnSite(e) {
-      if (e) e.stopPropagation();
-      if (modelGroup && controllerRight) {
-        const targetPos = new THREE.Vector3();
-        const targetRot = new THREE.Quaternion();
-        controllerRight.getWorldPosition(targetPos);
-        controllerRight.getWorldQuaternion(targetRot);
-
-        modelGroup.position.copy(targetPos);
-        modelGroup.quaternion.copy(targetRot);
-        updateUIFieldsFromModel();
-      }
-    }
-
-    // Ghost See-Through Mode
     function toggleGhostMode(e) {
       if (e) e.stopPropagation();
       isGhostMode = !isGhostMode;
@@ -573,58 +611,16 @@
         });
       }
 
-      if (isGhostMode) {
-        btn.innerText = "👻 Opaque Mode";
-        btn.classList.add('btn-active');
-      } else {
-        btn.innerText = "👻 Ghost Mode";
-        btn.classList.remove('btn-active');
-      }
+      btn.innerText = isGhostMode ? "👻 Opaque Mode" : "👻 Ghost Mode";
+      btn.classList.toggle('btn-active', isGhostMode);
     }
 
-    // Controller Free-Grab
-    function onGripStart() {
-      if (!isLocked && controllerRight && modelGroup) {
-        isGrabbing = true;
-      }
-    }
-
-    function onGripEnd() {
-      isGrabbing = false;
-      updateUIFieldsFromModel();
-    }
-
-    function updateGrabPosition() {
-      if (isGrabbing && controllerRight && modelGroup) {
-        const controllerPos = new THREE.Vector3();
-        const controllerRot = new THREE.Quaternion();
-        controllerRight.getWorldPosition(controllerPos);
-        controllerRight.getWorldQuaternion(controllerRot);
-
-        modelGroup.position.copy(controllerPos);
-        modelGroup.quaternion.copy(controllerRot);
-        updateUIFieldsFromModel();
-      }
-    }
-
-    // Lock/Unlock Position
     function toggleLockPosition(e) {
       if (e) e.stopPropagation();
       isLocked = !isLocked;
       const btn = document.getElementById('lock-btn');
-      if (isLocked) {
-        btn.innerText = "🔓 Position Locked";
-        btn.classList.add('btn-active');
-      } else {
-        btn.innerText = "🔒 Lock Position";
-        btn.classList.remove('btn-active');
-      }
-    }
-
-    function onControllerSelect() {
-      if (isMeasuring) {
-        handleMeasurementPoint();
-      }
+      btn.innerText = isLocked ? "🔓 Position Locked" : "🔒 Lock Position";
+      btn.classList.toggle('btn-active', isLocked);
     }
 
     function checkXRGamepadInputs() {
@@ -692,14 +688,9 @@
       if (e) e.stopPropagation();
       isMeasuring = !isMeasuring;
       const btn = document.getElementById('measure-btn');
-      if (isMeasuring) {
-        btn.innerText = "📏 Measuring...";
-        btn.classList.add('btn-active');
-        measurePoints = [];
-      } else {
-        btn.innerText = "📐 Start Measure";
-        btn.classList.remove('btn-active');
-      }
+      btn.innerText = isMeasuring ? "📏 Measuring..." : "📐 Start Measure";
+      btn.classList.toggle('btn-active', isMeasuring);
+      if (isMeasuring) measurePoints = [];
     }
 
     function handleMeasurementPoint() {
@@ -725,7 +716,6 @@
         measureGroup.add(line);
 
         alert(`Measured Distance: ${distMeters} m (${distFeet} ft)`);
-        
         measurePoints = [];
       }
     }
@@ -760,7 +750,7 @@
 
     function render() {
       checkXRGamepadInputs();
-      updateGrabPosition();
+      updateRaycast();
 
       if (!renderer.xr.isPresenting && orbitControls) {
         orbitControls.update();
