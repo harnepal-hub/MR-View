@@ -138,65 +138,32 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Corridor Transforms</h3>
+      <h3>1. Corridor Controls</h3>
       <div class="control-group">
         <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock Corridor</button>
         <button id="ghost-btn-2d" class="btn" onclick="toggleGhostMode()">👻 Ghost Mode</button>
       </div>
 
-      <div class="control-group">
-        <button class="btn" onclick="rotateModelY(-15)">↺ Rot Y -15°</button>
-        <button class="btn" onclick="rotateModelY(15)">↻ Rot Y +15°</button>
-      </div>
-
-      <div class="control-group">
-        <button class="btn" onclick="moveHeight(0.1)">▲ Height +10cm</button>
-        <button class="btn" onclick="moveHeight(-0.1)">▼ Height -10cm</button>
-      </div>
-
-      <div class="control-group">
-        <button class="btn" onclick="adjustScale(1.05)">+ Scale 5%</button>
-        <button class="btn" onclick="adjustScale(0.95)">- Scale 5%</button>
-      </div>
-
-      <h3>2. Add Photos & Videos</h3>
+      <h3>2. Add Media via Raycast Surface Snapping</h3>
       <label>Upload File (Image/Video):</label>
       <input type="file" id="media-file-input" accept="image/*,video/*" onchange="handleFileUpload(event)">
 
       <label>OR URL / YouTube Link:</label>
       <input type="text" id="media-url-input" placeholder="https://example.com/art.jpg">
       <div class="control-group">
-        <button class="btn" onclick="addMediaFromURL('image')">+ Add Image URL</button>
-        <button class="btn" onclick="addMediaFromURL('video')">+ Add Video URL</button>
+        <button class="btn" onclick="stageMediaFromURL('image')">+ Prepare Image</button>
+        <button class="btn" onclick="stageMediaFromURL('video')">+ Prepare Video</button>
       </div>
 
-      <h3>3. Selected Object Controls</h3>
-      <div id="selected-media-info" style="font-size: 11px; color: #4CAF50; margin-bottom: 6px;">Target: Corridor Model</div>
+      <h3>3. Surface Placement Mode</h3>
       <div class="control-group">
-        <button class="btn" onclick="deselectMediaFrame()">🎯 Target Corridor</button>
+        <button id="surface-place-btn-2d" class="btn" onclick="toggleSurfacePlacementMode()">🖼️ Raycast Place Media</button>
         <button class="btn" style="background:#c62828;" onclick="deleteSelectedMedia()">🗑️ Delete Frame</button>
-      </div>
-      <div class="control-group">
-        <button class="btn" onclick="rotateActiveTarget(-15)">↺ Rot Y -15°</button>
-        <button class="btn" onclick="rotateActiveTarget(15)">↻ Rot Y +15°</button>
-      </div>
-      <div class="control-group">
-        <button class="btn" onclick="moveActiveTarget(0, 0.1, 0)">▲ Up 10cm</button>
-        <button class="btn" onclick="moveActiveTarget(0, -0.1, 0)">▼ Down 10cm</button>
-      </div>
-      <div class="control-group">
-        <button class="btn" onclick="moveActiveTarget(0, 0, -0.1)">⬆ Forward 10cm</button>
-        <button class="btn" onclick="moveActiveTarget(0, 0, 0.1)">⬇ Back 10cm</button>
-      </div>
-      <div class="control-group">
-        <button class="btn" onclick="scaleActiveTarget(1.1)">+ Scale 10%</button>
-        <button class="btn" onclick="scaleActiveTarget(0.9)">- Scale 10%</button>
       </div>
 
       <div class="instructions">
-        • <b>Selection:</b> Click or Raycast any placed media frame to select it (cyan box outline).<br>
-        • <b>Target Corridor:</b> Click "Target Corridor" to switch controls back to the room model.<br>
-        • <b>Left Controller X/Y Button:</b> Show/Hide 3D Menu.
+        • <b>Auto-Surface Snapping:</b> Click "Raycast Place Media", point your laser at any wall/surface, and pull the trigger. The photo/video will align flush to the surface and auto-scale.<br>
+        • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
     </div>
 
@@ -209,13 +176,22 @@
     let modelGroup = null;
     let axesHelper = null;
     let floorReticle = null;
+    let surfaceReticle = null;
     let laserLine = null;
 
-    // Media Frame Management
+    // Staged & Placed Media Frame Management
+    let stagedMediaData = null; // Holds uploaded file/URL ready for raycast placement
     let mediaFramesGroup = null;
     let placedMediaFrames = [];
     let selectedMediaFrame = null;
     let selectionBoxHelper = null;
+
+    // Mode Flags
+    let isSurfacePlacementMode = false;
+    let surfaceHitPoint = new THREE.Vector3();
+    let surfaceHitNormal = new THREE.Vector3();
+    let surfaceHitBox = new THREE.Vector3();
+    let isSurfaceHitValid = false;
 
     // 3D VR Menu Objects
     let ar3DMenuGroup = null;
@@ -275,6 +251,13 @@
       floorReticle.visible = false;
       scene.add(floorReticle);
 
+      // Surface Placement Reticle (Cyan Box Plane)
+      const surfGeo = new THREE.PlaneGeometry(0.6, 0.4);
+      const surfMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide, wireframe: true });
+      surfaceReticle = new THREE.Mesh(surfGeo, surfMat);
+      surfaceReticle.visible = false;
+      scene.add(surfaceReticle);
+
       // Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
@@ -306,7 +289,7 @@
       const arBtn = document.getElementById('custom-ar-button');
       arBtn.addEventListener('click', onStartAR);
 
-      // Desktop Click Raycaster for selecting media frames in Orbit Mode
+      // Desktop Click Raycaster
       renderer.domElement.addEventListener('pointerdown', onDesktopPointerDown);
 
       // Controller Setup
@@ -341,13 +324,11 @@
       ar3DMenuGroup = new THREE.Group();
       ar3DMenuGroup.visible = false;
 
-      // Panel Background
       const bgGeo = new THREE.PlaneGeometry(0.85, 1.1);
       const bgMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
       const bgMesh = new THREE.Mesh(bgGeo, bgMat);
       ar3DMenuGroup.add(bgMesh);
 
-      // Dynamic Canvas Texture
       hudCanvas = document.createElement('canvas');
       hudCanvas.width = 512;
       hudCanvas.height = 256;
@@ -360,20 +341,19 @@
       hudMesh.position.set(0, 0.35, 0.01);
       ar3DMenuGroup.add(hudMesh);
 
-      // 3D Buttons Grid
       const buttonsConfig = [
         { label: "🎯 Floor Mark", action: "raycast", x: -0.2, y: 0.12, w: 0.36, h: 0.08, col: 0x2e7d32 },
         { label: "🔒 Lock Corridor", action: "lock", x: 0.2, y: 0.12, w: 0.36, h: 0.08, col: 0xc62828 },
-        { label: "↺ Rot Y -15°", action: "roty-", x: -0.2, y: 0.02, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "↻ Rot Y +15°", action: "roty+", x: 0.2, y: 0.02, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "+ Scale 10%", action: "s+", x: -0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "- Scale 10%", action: "s-", x: 0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "⬆ Move Fwd", action: "fwd", x: -0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x1565c0 },
-        { label: "⬇ Move Back", action: "back", x: 0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x1565c0 },
+        { label: "🖼️ Place Media Surface", action: "surface_place", x: -0.2, y: 0.02, w: 0.36, h: 0.08, col: 0x00838f },
+        { label: "🗑️ Delete Frame", action: "del_frame", x: 0.2, y: 0.02, w: 0.36, h: 0.08, col: 0xb71c1c },
+        { label: "↺ Rot Y -15°", action: "roty-", x: -0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↻ Rot Y +15°", action: "roty+", x: 0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "+ Scale 10%", action: "s+", x: -0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "- Scale 10%", action: "s-", x: 0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
         { label: "👻 Ghost Mode", action: "ghost", x: -0.2, y: -0.38, w: 0.36, h: 0.08, col: 0x4a148c },
-        { label: "🗑️ Delete Frame", action: "del_frame", x: 0.2, y: -0.38, w: 0.36, h: 0.08, col: 0xb71c1c }
+        { label: "Reset Transforms", action: "reset", x: 0.2, y: -0.38, w: 0.36, h: 0.08, col: 0x424242 }
       ];
 
       buttonsConfig.forEach(cfg => {
@@ -465,15 +445,19 @@
         hudContext.fillText(`Rot Y: ${ry}°  Scale: ${sc}%`, 20, 135);
       }
 
-      hudContext.fillStyle = isLocked ? '#ff5252' : '#69f0ae';
-      hudContext.fillText(isLocked ? 'STATUS: CORRIDOR LOCKED' : 'STATUS: UNLOCKED', 20, 200);
+      if (isSurfacePlacementMode) {
+        hudContext.fillStyle = '#00e5ff';
+        hudContext.fillText('MODE: RAYCAST SURFACE PLACE', 20, 190);
+      } else {
+        hudContext.fillStyle = isLocked ? '#ff5252' : '#69f0ae';
+        hudContext.fillText(isLocked ? 'STATUS: CORRIDOR LOCKED' : 'STATUS: UNLOCKED', 20, 190);
+      }
 
       hudTexture.needsUpdate = true;
 
-      // Update 2D Label
       const infoEl = document.getElementById('selected-media-info');
       if (infoEl) {
-        infoEl.innerText = `Active Control Target: ${labelName}`;
+        infoEl.innerText = isSurfacePlacementMode ? 'Mode: Aim laser at wall/surface to place media' : `Active Target: ${labelName}`;
       }
     }
 
@@ -619,20 +603,19 @@
       );
     }
 
-    // --- MEDIA FRAME CREATION & UPLOAD HANDLERS ---
+    // --- STAGED MEDIA CREATION & UPLOAD HANDLERS ---
     function handleFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
 
       const fileURL = URL.createObjectURL(file);
-      if (file.type.startsWith('image/')) {
-        createMediaFrameMesh('image', fileURL);
-      } else if (file.type.startsWith('video/')) {
-        createMediaFrameMesh('video', fileURL);
-      }
+      const fileType = file.type.startsWith('video/') ? 'video' : 'image';
+      stagedMediaData = { type: fileType, url: fileURL };
+      
+      toggleSurfacePlacementMode(true);
     }
 
-    function addMediaFromURL(type) {
+    function stageMediaFromURL(type) {
       const inputEl = document.getElementById('media-url-input');
       let url = inputEl.value.trim();
       if (!url) {
@@ -653,25 +636,59 @@
         }
       }
 
-      createMediaFrameMesh(type, url);
+      stagedMediaData = { type: type, url: url };
       inputEl.value = "";
+      toggleSurfacePlacementMode(true);
     }
 
-    function createMediaFrameMesh(type, srcUrl) {
-      const aspectWidth = 1.2;
-      const aspectHeight = 0.8;
-      const planeGeo = new THREE.PlaneGeometry(aspectWidth, aspectHeight);
+    function toggleSurfacePlacementMode(enable) {
+      if (enable !== undefined) {
+        isSurfacePlacementMode = enable;
+      } else {
+        isSurfacePlacementMode = !isSurfacePlacementMode;
+      }
+
+      const btn2D = document.getElementById('surface-place-btn-2d');
+      if (btn2D) {
+        btn2D.classList.toggle('btn-active', isSurfacePlacementMode);
+      }
+
+      if (!isSurfacePlacementMode && surfaceReticle) {
+        surfaceReticle.visible = false;
+      }
+
+      update3DHUDCanvas();
+    }
+
+    // RAYCAST SURFACE PLACEMENT WITH AUTO-SCALING
+    function placeStagedMediaOnSurface(point, normal, hitBoxSize) {
+      if (!stagedMediaData) {
+        // Fallback default placeholder
+        stagedMediaData = { type: 'image', url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800' };
+      }
+
+      // Auto-scale to surface dimensions
+      let initialWidth = 1.2;
+      let initialHeight = 0.8;
+
+      if (hitBoxSize && hitBoxSize.x > 0.2 && hitBoxSize.y > 0.2) {
+        // Fit within 60% of target wall face
+        initialWidth = Math.min(hitBoxSize.x * 0.6, 2.5);
+        initialHeight = Math.min(hitBoxSize.y * 0.6, 1.8);
+      }
+
+      const planeGeo = new THREE.PlaneGeometry(initialWidth, initialHeight);
       let planeMat;
 
-      if (type === 'image') {
-        const texture = new THREE.TextureLoader().load(srcUrl, () => {
+      if (stagedMediaData.type === 'image') {
+        const texture = new THREE.TextureLoader().load(stagedMediaData.url, () => {
           renderer.compile(scene, camera);
         });
         texture.encoding = THREE.sRGBEncoding;
         planeMat = new THREE.MeshStandardMaterial({ map: texture, side: THREE.DoubleSide, roughness: 0.3 });
-      } else if (type === 'video') {
+      } else if (stagedMediaData.type === 'video') {
         const video = document.createElement('video');
-        video.src = srcUrl;
+        video.src = stagedMediaData.url;
         video.crossOrigin = 'anonymous';
         video.loop = true;
         video.muted = true;
@@ -684,28 +701,19 @@
 
       const frameMesh = new THREE.Mesh(planeGeo, planeMat);
 
-      // Dark Backing Frame
-      const borderGeo = new THREE.BoxGeometry(aspectWidth + 0.06, aspectHeight + 0.06, 0.03);
+      // Add Frame Border
+      const borderGeo = new THREE.BoxGeometry(initialWidth + 0.05, initialHeight + 0.05, 0.02);
       const borderMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
       const borderMesh = new THREE.Mesh(borderGeo, borderMat);
-      borderMesh.position.z = -0.016;
+      borderMesh.position.z = -0.011;
       frameMesh.add(borderMesh);
 
-      // Position in front of controller or camera
-      if (renderer.xr.isPresenting && controllerRight) {
-        const rayOrigin = new THREE.Vector3();
-        const rayQuat = new THREE.Quaternion();
-        controllerRight.getWorldPosition(rayOrigin);
-        controllerRight.getWorldQuaternion(rayQuat);
+      // Snap to Surface Hit Point and Align to Normal Facing Direction
+      frameMesh.position.copy(point).add(normal.clone().multiplyScalar(0.015)); // Offset 1.5cm off wall
 
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rayQuat);
-        frameMesh.position.copy(rayOrigin).add(fwd.multiplyScalar(1.2));
-        frameMesh.lookAt(rayOrigin);
-      } else {
-        frameMesh.position.set(0, 1.5, -1.5);
-      }
+      const lookTarget = point.clone().add(normal);
+      frameMesh.lookAt(lookTarget);
 
-      // Flag for Raycast Selection
       frameMesh.userData = { isMediaFrame: true, rootFrame: frameMesh };
       borderMesh.userData = { isMediaFrame: true, rootFrame: frameMesh };
 
@@ -713,6 +721,7 @@
       placedMediaFrames.push(frameMesh);
 
       selectMediaFrame(frameMesh);
+      toggleSurfacePlacementMode(false);
     }
 
     function selectMediaFrame(frameMesh) {
@@ -742,7 +751,39 @@
       update3DHUDCanvas();
     }
 
-    // DESKTOP CLICK SELECTION FOR MEDIA FRAMES
+    // UPDATE RAYCAST SURFACE SNAPPING PREVIEW
+    function updateSurfaceRaycast(ray) {
+      if (!isSurfacePlacementMode) {
+        if (surfaceReticle) surfaceReticle.visible = false;
+        isSurfaceHitValid = false;
+        return;
+      }
+
+      // Raycast against GLTF Corridor Meshes
+      const intersects = ray.intersectObjects(modelGroup.children, true);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0];
+        surfaceHitPoint.copy(hit.point);
+        surfaceHitNormal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+
+        // Calculate surface object bounding box for auto-scaling
+        const hitBox = new THREE.Box3().setFromObject(hit.object);
+        hitBox.getSize(surfaceHitBox);
+
+        surfaceReticle.position.copy(surfaceHitPoint).add(surfaceHitNormal.clone().multiplyScalar(0.01));
+        const lookTarget = surfaceHitPoint.clone().add(surfaceHitNormal);
+        surfaceReticle.lookAt(lookTarget);
+        surfaceReticle.visible = true;
+
+        isSurfaceHitValid = true;
+      } else {
+        surfaceReticle.visible = false;
+        isSurfaceHitValid = false;
+      }
+    }
+
+    // DESKTOP CLICK SELECTION & PLACEMENT
     function onDesktopPointerDown(event) {
       if (renderer.xr.isPresenting) return;
 
@@ -753,8 +794,17 @@
       );
 
       raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
 
+      if (isSurfacePlacementMode) {
+        updateSurfaceRaycast(raycaster);
+        if (isSurfaceHitValid) {
+          placeStagedMediaOnSurface(surfaceHitPoint, surfaceHitNormal, surfaceHitBox);
+        }
+        return;
+      }
+
+      // Select existing frame
+      const intersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
       if (intersects.length > 0) {
         let hitObj = intersects[0].object;
         while (hitObj && !hitObj.userData.isMediaFrame && hitObj.parent) {
@@ -778,7 +828,16 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        // 1. Check Intersection with 3D Menu Buttons
+        // 1. Surface Raycast Media Placement
+        if (isSurfacePlacementMode) {
+          updateSurfaceRaycast(raycaster);
+          if (isSurfaceHitValid) {
+            placeStagedMediaOnSurface(surfaceHitPoint, surfaceHitNormal, surfaceHitBox);
+            return;
+          }
+        }
+
+        // 2. Intersect 3D Menu Buttons
         if (ar3DMenuGroup.visible) {
           const intersects = raycaster.intersectObjects(ar3DButtons, true);
           if (intersects.length > 0) {
@@ -793,7 +852,7 @@
           }
         }
 
-        // 2. Check Intersection with Placed Media Frames
+        // 3. Intersect Placed Media Frames
         const mediaIntersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
         if (mediaIntersects.length > 0) {
           let hitObj = mediaIntersects[0].object;
@@ -804,7 +863,6 @@
             const rootFrame = hitObj.userData.rootFrame;
             selectMediaFrame(rootFrame);
 
-            // Toggle play/pause if clicking a video frame
             if (rootFrame.material && rootFrame.material.map && rootFrame.material.map.image instanceof HTMLVideoElement) {
               const videoEl = rootFrame.material.map.image;
               if (videoEl.paused) videoEl.play();
@@ -814,7 +872,7 @@
           }
         }
 
-        // 3. Check Raycast Floor Marking
+        // 4. Floor Raycast Placement for Corridor Origin
         if (!isLocked && isRaycastMode && floorReticle.visible && modelGroup) {
           modelGroup.position.copy(floorReticle.position);
           toggleRaycastPlacement();
@@ -836,6 +894,10 @@
         deleteSelectedMedia();
         return;
       }
+      if (action === 'surface_place') {
+        toggleSurfacePlacementMode();
+        return;
+      }
 
       if (action === 'raycast' && !isLocked) {
         toggleRaycastPlacement();
@@ -846,8 +908,6 @@
       else if (action === 'roty+') rotateActiveTarget(15);
       else if (action === 'h+') moveActiveTarget(0, 0.1, 0);
       else if (action === 'h-') moveActiveTarget(0, -0.1, 0);
-      else if (action === 'fwd') moveActiveTarget(0, 0, -0.1);
-      else if (action === 'back') moveActiveTarget(0, 0, 0.1);
       else if (action === 's+') scaleActiveTarget(1.1);
       else if (action === 's-') scaleActiveTarget(0.9);
 
@@ -888,7 +948,7 @@
     }
 
     function updateRaycast() {
-      if (renderer.xr.isPresenting && isRaycastMode && !isLocked && controllerRight) {
+      if (renderer.xr.isPresenting && controllerRight) {
         const tempMatrix = new THREE.Matrix4();
         tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
 
@@ -898,11 +958,15 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        if (raycaster.ray.intersectPlane(floorPlane, rayIntersectionPoint)) {
-          floorReticle.position.copy(rayIntersectionPoint);
-          floorReticle.visible = true;
-        } else {
-          floorReticle.visible = false;
+        if (isSurfacePlacementMode) {
+          updateSurfaceRaycast(raycaster);
+        } else if (isRaycastMode && !isLocked) {
+          if (raycaster.ray.intersectPlane(floorPlane, rayIntersectionPoint)) {
+            floorReticle.position.copy(rayIntersectionPoint);
+            floorReticle.visible = true;
+          } else {
+            floorReticle.visible = false;
+          }
         }
       }
     }
