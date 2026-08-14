@@ -155,14 +155,24 @@
         <button class="btn" onclick="stageMediaFromURL('video')">+ Prepare Video</button>
       </div>
 
-      <h3>3. Surface Placement Mode</h3>
+      <h3>3. Surface Placement & Scaling</h3>
+      <div id="selected-media-info" style="font-size: 11px; color: #4CAF50; margin-bottom: 6px;">Target: Corridor Model</div>
       <div class="control-group">
         <button id="surface-place-btn-2d" class="btn" onclick="toggleSurfacePlacementMode()">🖼️ Raycast Place Media</button>
         <button class="btn" style="background:#c62828;" onclick="deleteSelectedMedia()">🗑️ Delete Frame</button>
       </div>
+      <div class="control-group">
+        <button class="btn" onclick="scaleActiveTarget(1.1)">🔍 Scale Up 10%</button>
+        <button class="btn" onclick="scaleActiveTarget(0.9)">🔎 Scale Down 10%</button>
+      </div>
+      <div class="control-group">
+        <button class="btn" onclick="rotateActiveTarget(-15)">↺ Rot Y -15°</button>
+        <button class="btn" onclick="rotateActiveTarget(15)">↻ Rot Y +15°</button>
+      </div>
 
       <div class="instructions">
-        • <b>Auto-Surface Snapping:</b> Click "Raycast Place Media", point your laser at any wall/surface, and pull the trigger. The photo/video will align flush to the surface and auto-scale.<br>
+        • <b>Controller Scale Shortcut:</b> Push Right Thumbstick UP/DOWN to scale any selected media frame live in AR!<br>
+        • <b>Controller Rotate Shortcut:</b> Push Right Thumbstick LEFT/RIGHT to rotate.<br>
         • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
     </div>
@@ -180,7 +190,7 @@
     let laserLine = null;
 
     // Staged & Placed Media Frame Management
-    let stagedMediaData = null; // Holds uploaded file/URL ready for raycast placement
+    let stagedMediaData = null;
     let mediaFramesGroup = null;
     let placedMediaFrames = [];
     let selectedMediaFrame = null;
@@ -346,12 +356,12 @@
         { label: "🔒 Lock Corridor", action: "lock", x: 0.2, y: 0.12, w: 0.36, h: 0.08, col: 0xc62828 },
         { label: "🖼️ Place Media Surface", action: "surface_place", x: -0.2, y: 0.02, w: 0.36, h: 0.08, col: 0x00838f },
         { label: "🗑️ Delete Frame", action: "del_frame", x: 0.2, y: 0.02, w: 0.36, h: 0.08, col: 0xb71c1c },
-        { label: "↺ Rot Y -15°", action: "roty-", x: -0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "↻ Rot Y +15°", action: "roty+", x: 0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "+ Scale 10%", action: "s+", x: -0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "- Scale 10%", action: "s-", x: 0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "🔍 Scale Up", action: "s+", x: -0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "🔎 Scale Down", action: "s-", x: 0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↺ Rot Y -15°", action: "roty-", x: -0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↻ Rot Y +15°", action: "roty+", x: 0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
         { label: "👻 Ghost Mode", action: "ghost", x: -0.2, y: -0.38, w: 0.36, h: 0.08, col: 0x4a148c },
         { label: "Reset Transforms", action: "reset", x: 0.2, y: -0.38, w: 0.36, h: 0.08, col: 0x424242 }
       ];
@@ -663,16 +673,13 @@
     // RAYCAST SURFACE PLACEMENT WITH AUTO-SCALING
     function placeStagedMediaOnSurface(point, normal, hitBoxSize) {
       if (!stagedMediaData) {
-        // Fallback default placeholder
         stagedMediaData = { type: 'image', url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800' };
       }
 
-      // Auto-scale to surface dimensions
       let initialWidth = 1.2;
       let initialHeight = 0.8;
 
       if (hitBoxSize && hitBoxSize.x > 0.2 && hitBoxSize.y > 0.2) {
-        // Fit within 60% of target wall face
         initialWidth = Math.min(hitBoxSize.x * 0.6, 2.5);
         initialHeight = Math.min(hitBoxSize.y * 0.6, 1.8);
       }
@@ -701,15 +708,14 @@
 
       const frameMesh = new THREE.Mesh(planeGeo, planeMat);
 
-      // Add Frame Border
+      // Frame Border
       const borderGeo = new THREE.BoxGeometry(initialWidth + 0.05, initialHeight + 0.05, 0.02);
       const borderMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
       const borderMesh = new THREE.Mesh(borderGeo, borderMat);
       borderMesh.position.z = -0.011;
       frameMesh.add(borderMesh);
 
-      // Snap to Surface Hit Point and Align to Normal Facing Direction
-      frameMesh.position.copy(point).add(normal.clone().multiplyScalar(0.015)); // Offset 1.5cm off wall
+      frameMesh.position.copy(point).add(normal.clone().multiplyScalar(0.015));
 
       const lookTarget = point.clone().add(normal);
       frameMesh.lookAt(lookTarget);
@@ -751,7 +757,6 @@
       update3DHUDCanvas();
     }
 
-    // UPDATE RAYCAST SURFACE SNAPPING PREVIEW
     function updateSurfaceRaycast(ray) {
       if (!isSurfacePlacementMode) {
         if (surfaceReticle) surfaceReticle.visible = false;
@@ -759,7 +764,6 @@
         return;
       }
 
-      // Raycast against GLTF Corridor Meshes
       const intersects = ray.intersectObjects(modelGroup.children, true);
 
       if (intersects.length > 0) {
@@ -767,7 +771,6 @@
         surfaceHitPoint.copy(hit.point);
         surfaceHitNormal.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
 
-        // Calculate surface object bounding box for auto-scaling
         const hitBox = new THREE.Box3().setFromObject(hit.object);
         hitBox.getSize(surfaceHitBox);
 
@@ -783,7 +786,6 @@
       }
     }
 
-    // DESKTOP CLICK SELECTION & PLACEMENT
     function onDesktopPointerDown(event) {
       if (renderer.xr.isPresenting) return;
 
@@ -803,7 +805,6 @@
         return;
       }
 
-      // Select existing frame
       const intersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
       if (intersects.length > 0) {
         let hitObj = intersects[0].object;
@@ -828,7 +829,6 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        // 1. Surface Raycast Media Placement
         if (isSurfacePlacementMode) {
           updateSurfaceRaycast(raycaster);
           if (isSurfaceHitValid) {
@@ -837,7 +837,6 @@
           }
         }
 
-        // 2. Intersect 3D Menu Buttons
         if (ar3DMenuGroup.visible) {
           const intersects = raycaster.intersectObjects(ar3DButtons, true);
           if (intersects.length > 0) {
@@ -852,7 +851,6 @@
           }
         }
 
-        // 3. Intersect Placed Media Frames
         const mediaIntersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
         if (mediaIntersects.length > 0) {
           let hitObj = mediaIntersects[0].object;
@@ -872,7 +870,6 @@
           }
         }
 
-        // 4. Floor Raycast Placement for Corridor Origin
         if (!isLocked && isRaycastMode && floorReticle.visible && modelGroup) {
           modelGroup.position.copy(floorReticle.position);
           toggleRaycastPlacement();
@@ -1002,22 +999,51 @@
       update3DHUDCanvas();
     }
 
+    // --- CONTINUOUS CONTROLLER THUMBSTICK INPUT POLLING (SCALE & ROTATE SHORTCUTS) ---
     function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
         const session = renderer.xr.getSession();
         if (session) {
           for (const source of session.inputSources) {
-            if (source.handedness === 'left' && source.gamepad) {
-              const buttons = source.gamepad.buttons;
-              const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
-              
-              if (btnPressed && !prevLeftBtnState) {
-                ar3DMenuGroup.visible = !ar3DMenuGroup.visible;
-                if (ar3DMenuGroup.visible) {
-                  positionPanelInFrontOfCamera();
+            if (source.gamepad && source.gamepad.axes) {
+              const axes = source.gamepad.axes; // [touchpadX, touchpadY, thumbstickX, thumbstickY]
+              const axisX = axes[2] !== undefined ? axes[2] : axes[0];
+              const axisY = axes[3] !== undefined ? axes[3] : axes[1];
+
+              // Right Controller Joystick Shortcuts
+              if (source.handedness === 'right') {
+                // Scale Shortcut: Thumbstick Up/Down
+                if (Math.abs(axisY) > 0.3) {
+                  const scaleFactor = axisY < 0 ? 1.02 : 0.98; // Up = Scale Up, Down = Scale Down
+                  scaleActiveTarget(scaleFactor);
+                }
+                // Rotate Shortcut: Thumbstick Left/Right
+                if (Math.abs(axisX) > 0.3) {
+                  const rotAngle = axisX > 0 ? 1.5 : -1.5;
+                  rotateActiveTarget(rotAngle);
                 }
               }
-              prevLeftBtnState = btnPressed;
+
+              // Left Controller Joystick & Buttons
+              if (source.handedness === 'left') {
+                // Height Shortcut: Left Thumbstick Up/Down
+                if (Math.abs(axisY) > 0.3) {
+                  const deltaY = axisY < 0 ? 0.02 : -0.02;
+                  moveActiveTarget(0, deltaY, 0);
+                }
+
+                // X/Y Button Menu Toggle
+                const buttons = source.gamepad.buttons;
+                const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
+                
+                if (btnPressed && !prevLeftBtnState) {
+                  ar3DMenuGroup.visible = !ar3DMenuGroup.visible;
+                  if (ar3DMenuGroup.visible) {
+                    positionPanelInFrontOfCamera();
+                  }
+                }
+                prevLeftBtnState = btnPressed;
+              }
             }
           }
         }
