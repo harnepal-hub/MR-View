@@ -118,6 +118,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- DRACO Loader Library for Compressed glTF/GLB Models -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/DRACOLoader.js"></script>
 </head>
 <body>
 
@@ -129,10 +131,10 @@
       <label for="model-select">Select Corridor Design:</label>
       <select id="model-select">
         <option value="design1.glb">Corridor Design 1</option>
-        <option value="design2.glb" selected>Corridor Design 2</option>
+        <option value="design2.glb">Corridor Design 2</option>
         <option value="design3.glb">Corridor Design 3</option>
         <option value="design4.glb">Corridor Design 4</option>
-        <option value="design5.glb">Corridor Design 5</option>
+        <option value="design5.glb" selected>Corridor Design 5</option>
       </select>
 
       <div id="status-msg">Initializing...</div>
@@ -159,9 +161,9 @@
       </div>
 
       <div class="instructions">
-        • <b>Meta Quest AR:</b> Tap <b>START AR</b>. A 3D Control Menu will spawn directly in front of you.<br>
-        • <b>Left Controller X/Y Button:</b> Show/Hide 3D Menu in AR.<br>
-        • <b>Right Trigger:</b> Click 3D menu buttons or mark floor.
+        • <b>Meta Quest AR:</b> Tap <b>START AR</b>.<br>
+        • <b>Left Controller X/Y Button:</b> Pop-up 3D Menu.<br>
+        • <b>Draco Support:</b> Enabled for compressed GLB files.
       </div>
     </div>
 
@@ -198,7 +200,11 @@
     let measureGroup = null;
     let prevLeftBtnState = false;
 
+    // GLTF & DRACO Loader Configuration
     const loader = new THREE.GLTFLoader();
+    const dracoLoader = new THREE.DRACOLoader();
+    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+    loader.setDRACOLoader(dracoLoader);
 
     init();
     animate();
@@ -273,7 +279,7 @@
       controllerLeft = renderer.xr.getController(1);
       scene.add(controllerLeft);
 
-      // Build the 3D AR Control Menu
+      // Build 3D AR Control Menu
       build3DARMenu();
 
       const initialFile = document.getElementById('model-select').value;
@@ -289,11 +295,11 @@
     // --- BUILD NATIVE 3D AR FLOATING MENU PANEL ---
     function build3DARMenu() {
       ar3DMenuGroup = new THREE.Group();
-      ar3DMenuGroup.visible = false; // Hidden until AR starts
+      ar3DMenuGroup.visible = false;
 
       // Panel Background
       const bgGeo = new THREE.PlaneGeometry(0.8, 1.0);
-      const bgMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+      const bgMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
       const bgMesh = new THREE.Mesh(bgGeo, bgMat);
       ar3DMenuGroup.add(bgMesh);
 
@@ -313,7 +319,7 @@
       // Button Layout Grid
       const buttonsConfig = [
         { label: "🎯 Raycast Mark", action: "raycast", x: -0.19, y: 0.08, w: 0.35, h: 0.09, col: 0x2e7d32 },
-        { label: "🔒 Lock Pos", action: "lock", x: 0.19, y: 0.08, w: 0.35, h: 0.09, col: 0xc62828 },
+        { label: "🔒 Lock / Unlock", action: "lock", x: 0.19, y: 0.08, w: 0.35, h: 0.09, col: 0xc62828 },
         { label: "↺ Rot Y -15°", action: "roty-", x: -0.19, y: -0.03, w: 0.35, h: 0.08, col: 0x333333 },
         { label: "↻ Rot Y +15°", action: "roty+", x: 0.19, y: -0.03, w: 0.35, h: 0.08, col: 0x333333 },
         { label: "▲ Height +10cm", action: "h+", x: -0.19, y: -0.13, w: 0.35, h: 0.08, col: 0x333333 },
@@ -343,7 +349,6 @@
       const bgMesh = new THREE.Mesh(bgGeo, bgMat);
       btnGroup.add(bgMesh);
 
-      // Draw Label on Canvas
       const c = document.createElement('canvas');
       c.width = 256;
       c.height = 64;
@@ -365,6 +370,30 @@
       return btnGroup;
     }
 
+    function positionPanelInFrontOfCamera() {
+      if (!camera || !ar3DMenuGroup) return;
+
+      const camPos = new THREE.Vector3();
+      const camQuat = new THREE.Quaternion();
+      camera.getWorldPosition(camPos);
+      camera.getWorldQuaternion(camQuat);
+
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camQuat);
+
+      forward.y = 0;
+      forward.normalize();
+      right.y = 0;
+      right.normalize();
+
+      const targetPos = camPos.clone()
+        .add(forward.multiplyScalar(1.1))
+        .add(right.multiplyScalar(-0.35));
+
+      ar3DMenuGroup.position.copy(targetPos);
+      ar3DMenuGroup.lookAt(camPos.x, targetPos.y, camPos.z);
+    }
+
     function update3DHUDCanvas() {
       if (!hudContext || !modelGroup) return;
 
@@ -372,7 +401,7 @@
       hudContext.fillStyle = '#1e1e1e';
       hudContext.fillRect(0, 0, 512, 256);
 
-      hudContext.strokeStyle = '#4CAF50';
+      hudContext.strokeStyle = isLocked ? '#ff5252' : '#4CAF50';
       hudContext.lineWidth = 6;
       hudContext.strokeRect(0, 0, 512, 256);
 
@@ -389,7 +418,7 @@
       hudContext.fillText(`Scale: ${sc}%`, 280, 90);
 
       hudContext.fillStyle = isLocked ? '#ff5252' : '#69f0ae';
-      hudContext.fillText(isLocked ? 'STATUS: LOCKED' : 'STATUS: UNLOCKED', 20, 200);
+      hudContext.fillText(isLocked ? 'STATUS: LOCKED (UNEDITABLE)' : 'STATUS: UNLOCKED (EDITABLE)', 20, 200);
 
       hudTexture.needsUpdate = true;
     }
@@ -416,9 +445,7 @@
               document.getElementById('custom-ar-button').style.display = 'none';
               document.getElementById('ui-container').style.display = 'none';
 
-              // Position 3D Menu 1.2 meters in front of the headset
-              ar3DMenuGroup.position.set(0, 1.4, -1.2);
-              ar3DMenuGroup.rotation.set(0, 0, 0);
+              positionPanelInFrontOfCamera();
               ar3DMenuGroup.visible = true;
 
               if (laserLine) laserLine.visible = true;
@@ -528,6 +555,12 @@
             const percent = Math.round((xhr.loaded / xhr.total) * 100);
             statusEl.innerText = `Loading: ${percent}%`;
           }
+        },
+        (error) => {
+          console.error('GLB Load Error:', error);
+          statusEl.style.color = '#f44336';
+          statusEl.innerText = 'Error loading ' + filename + '. Check file name & case sensitivity on GitHub.';
+          arBtn.innerText = "LOAD ERROR";
         }
       );
     }
@@ -544,7 +577,6 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        // 1. Check Intersection with 3D Menu Buttons
         if (ar3DMenuGroup.visible) {
           const intersects = raycaster.intersectObjects(ar3DButtons, true);
           if (intersects.length > 0) {
@@ -559,8 +591,7 @@
           }
         }
 
-        // 2. Check Raycast Floor Marking
-        if (isRaycastMode && floorReticle.visible && modelGroup) {
+        if (!isLocked && isRaycastMode && floorReticle.visible && modelGroup) {
           modelGroup.position.copy(floorReticle.position);
           toggleRaycastPlacement();
           update3DHUDCanvas();
@@ -569,22 +600,31 @@
     }
 
     function execute3DMenuAction(action) {
+      if (action === 'lock') {
+        toggleLockPosition();
+        return;
+      }
+      if (action === 'ghost') {
+        toggleGhostMode();
+        return;
+      }
+
+      if (isLocked) return;
+
       if (action === 'raycast') toggleRaycastPlacement();
-      else if (action === 'lock') toggleLockPosition();
       else if (action === 'roty-') rotateModelY(-15);
       else if (action === 'roty+') rotateModelY(15);
       else if (action === 'h+') moveHeight(0.1);
       else if (action === 'h-') moveHeight(-0.1);
       else if (action === 's+') adjustScale(1.05);
       else if (action === 's-') adjustScale(0.95);
-      else if (action === 'ghost') toggleGhostMode();
       else if (action === 'reset') resetTransforms();
 
       update3DHUDCanvas();
     }
 
     function updateRaycast() {
-      if (renderer.xr.isPresenting && isRaycastMode && controllerRight) {
+      if (renderer.xr.isPresenting && isRaycastMode && !isLocked && controllerRight) {
         const tempMatrix = new THREE.Matrix4();
         tempMatrix.identity().extractRotation(controllerRight.matrixWorld);
 
@@ -604,11 +644,13 @@
     }
 
     function toggleRaycastPlacement() {
+      if (isLocked) return;
       isRaycastMode = !isRaycastMode;
       if (!isRaycastMode && floorReticle) floorReticle.visible = false;
     }
 
     function rotateModelY(deg) {
+      if (isLocked) return;
       if (modelGroup) {
         modelGroup.rotation.y += THREE.MathUtils.degToRad(deg);
         update3DHUDCanvas();
@@ -616,6 +658,7 @@
     }
 
     function moveHeight(deltaY) {
+      if (isLocked) return;
       if (modelGroup) {
         modelGroup.position.y += deltaY;
         update3DHUDCanvas();
@@ -623,6 +666,7 @@
     }
 
     function adjustScale(factor) {
+      if (isLocked) return;
       if (modelGroup) {
         modelGroup.scale.multiplyScalar(factor);
         update3DHUDCanvas();
@@ -643,10 +687,15 @@
 
     function toggleLockPosition() {
       isLocked = !isLocked;
+      if (isLocked && isRaycastMode) {
+        isRaycastMode = false;
+        if (floorReticle) floorReticle.visible = false;
+      }
       update3DHUDCanvas();
     }
 
     function resetTransforms() {
+      if (isLocked) return;
       if (modelGroup) {
         modelGroup.position.set(0, 0, -2);
         modelGroup.rotation.set(0, 0, 0);
@@ -655,7 +704,6 @@
       }
     }
 
-    // Toggle 3D AR Menu visibility via Left Controller X / Y Button
     function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
         const session = renderer.xr.getSession();
@@ -667,6 +715,9 @@
               
               if (btnPressed && !prevLeftBtnState) {
                 ar3DMenuGroup.visible = !ar3DMenuGroup.visible;
+                if (ar3DMenuGroup.visible) {
+                  positionPanelInFrontOfCamera();
+                }
               }
               prevLeftBtnState = btnPressed;
             }
