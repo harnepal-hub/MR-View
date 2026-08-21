@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio Gallery MR Viewer - True 1:1 Scale</title>
+  <title>Studio Gallery MR Viewer</title>
   <style>
     html, body {
       margin: 0;
@@ -138,13 +138,29 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Corridor Controls</h3>
+      <h3>1. Origin (0,0,0) & Axis Locks</h3>
       <div class="control-group">
-        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock Corridor</button>
-        <button id="ghost-btn-2d" class="btn" onclick="toggleGhostMode()">👻 Ghost Mode</button>
+        <button id="relocate-origin-btn-2d" class="btn" onclick="toggleRelocateOriginMode()">📍 Relocate Origin</button>
+        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock All</button>
       </div>
 
-      <h3>2. Add Media via Raycast Surface Snapping</h3>
+      <div class="control-group">
+        <button id="lock-x-btn" class="btn" onclick="toggleAxisLock('x')">Lock X: OFF</button>
+        <button id="lock-y-btn" class="btn" onclick="toggleAxisLock('y')">Lock Y: OFF</button>
+        <button id="lock-z-btn" class="btn" onclick="toggleAxisLock('z')">Lock Z: OFF</button>
+      </div>
+
+      <h3>2. Corridor Transforms</h3>
+      <div class="control-group">
+        <button class="btn" onclick="rotateActiveTarget(-5)">↺ Rot Y -5°</button>
+        <button class="btn" onclick="rotateActiveTarget(5)">↻ Rot Y +5°</button>
+      </div>
+      <div class="control-group">
+        <button class="btn" onclick="scaleActiveTarget(1.05)">🔍 Scale Up 5%</button>
+        <button class="btn" onclick="scaleActiveTarget(0.95)">🔎 Scale Down 5%</button>
+      </div>
+
+      <h3>3. Add Photos & Videos</h3>
       <label>Upload File (Image/Video):</label>
       <input type="file" id="media-file-input" accept="image/*,video/*" onchange="handleFileUpload(event)">
 
@@ -155,24 +171,16 @@
         <button class="btn" onclick="stageMediaFromURL('video')">+ Prepare Video</button>
       </div>
 
-      <h3>3. Precision Transforms (5° Steps)</h3>
       <div id="selected-media-info" style="font-size: 11px; color: #4CAF50; margin-bottom: 6px;">Target: Corridor Model</div>
       <div class="control-group">
         <button id="surface-place-btn-2d" class="btn" onclick="toggleSurfacePlacementMode()">🖼️ Raycast Place Media</button>
         <button class="btn" style="background:#c62828;" onclick="deleteSelectedMedia()">🗑️ Delete Frame</button>
       </div>
-      <div class="control-group">
-        <button class="btn" onclick="rotateActiveTarget(-5)">↺ Rot Y -5°</button>
-        <button class="btn" onclick="rotateActiveTarget(5)">↻ Rot Y +5°</button>
-      </div>
-      <div class="control-group">
-        <button class="btn" onclick="scaleActiveTarget(1.05)">🔍 Scale Up 5%</button>
-        <button class="btn" onclick="scaleActiveTarget(0.95)">🔎 Scale Down 5%</button>
-      </div>
 
       <div class="instructions">
-        • <b>Auto 1:1 Scale Fix:</b> SketchUp GLB inch units automatically convert to true architectural meters upon import.<br>
-        • <b>5° Step Rotation:</b> Fine-tune alignment in AR using thumbstick or 3D menu.
+        • <b>Relocate Origin:</b> Click "Relocate Origin", aim laser at any point on the model, and pull trigger to move $(0,0,0)$.<br>
+        • <b>Axis Locks:</b> Lock individual X, Y, or Z movement/rotations.<br>
+        • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
     </div>
 
@@ -186,6 +194,7 @@
     let axesHelper = null;
     let floorReticle = null;
     let surfaceReticle = null;
+    let originMarkerMesh = null;
     let laserLine = null;
 
     // Staged & Placed Media Frame Management
@@ -195,8 +204,11 @@
     let selectedMediaFrame = null;
     let selectionBoxHelper = null;
 
-    // Mode Flags
+    // Mode & Lock Flags
     let isSurfacePlacementMode = false;
+    let isRelocateOriginMode = false;
+    let lockAxis = { x: false, y: false, z: false };
+
     let surfaceHitPoint = new THREE.Vector3();
     let surfaceHitNormal = new THREE.Vector3();
     let surfaceHitBox = new THREE.Vector3();
@@ -212,7 +224,6 @@
     let isLocked = false;
     let isGhostMode = false;
     let isRaycastMode = false;
-    let showAxes = true;
     
     // Raycaster Setup
     const raycaster = new THREE.Raycaster();
@@ -252,6 +263,13 @@
       // 3D RGB Axes
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
+
+      // Origin Relocation Marker (Yellow Sphere)
+      const originSphereGeo = new THREE.SphereGeometry(0.04, 16, 16);
+      const originSphereMat = new THREE.MeshBasicMaterial({ color: 0xffeb3b });
+      originMarkerMesh = new THREE.Mesh(originSphereGeo, originSphereMat);
+      originMarkerMesh.visible = false;
+      scene.add(originMarkerMesh);
 
       // Target Floor Reticle
       const ringGeo = new THREE.RingGeometry(0.12, 0.16, 32);
@@ -327,11 +345,12 @@
       window.addEventListener('resize', onWindowResize);
     }
 
+    // --- NATIVE 3D AR CONTROL MENU ---
     function build3DARMenu() {
       ar3DMenuGroup = new THREE.Group();
       ar3DMenuGroup.visible = false;
 
-      const bgGeo = new THREE.PlaneGeometry(0.85, 1.1);
+      const bgGeo = new THREE.PlaneGeometry(0.85, 1.15);
       const bgMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide, transparent: true, opacity: 0.92 });
       const bgMesh = new THREE.Mesh(bgGeo, bgMat);
       ar3DMenuGroup.add(bgMesh);
@@ -345,22 +364,25 @@
       const hudGeo = new THREE.PlaneGeometry(0.76, 0.3);
       const hudMat = new THREE.MeshBasicMaterial({ map: hudTexture, transparent: true });
       const hudMesh = new THREE.Mesh(hudGeo, hudMat);
-      hudMesh.position.set(0, 0.35, 0.01);
+      hudMesh.position.set(0, 0.38, 0.01);
       ar3DMenuGroup.add(hudMesh);
 
       const buttonsConfig = [
-        { label: "🎯 Floor Mark", action: "raycast", x: -0.2, y: 0.12, w: 0.36, h: 0.08, col: 0x2e7d32 },
-        { label: "🔒 Lock Corridor", action: "lock", x: 0.2, y: 0.12, w: 0.36, h: 0.08, col: 0xc62828 },
-        { label: "🖼️ Place Media Surface", action: "surface_place", x: -0.2, y: 0.02, w: 0.36, h: 0.08, col: 0x00838f },
-        { label: "🗑️ Delete Frame", action: "del_frame", x: 0.2, y: 0.02, w: 0.36, h: 0.08, col: 0xb71c1c },
-        { label: "🔍 Scale Up", action: "s+", x: -0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "🔎 Scale Down", action: "s-", x: 0.2, y: -0.08, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "↺ Rot Y -5°", action: "roty-", x: -0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "↻ Rot Y +5°", action: "roty+", x: 0.2, y: -0.18, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.28, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "👻 Ghost Mode", action: "ghost", x: -0.2, y: -0.38, w: 0.36, h: 0.08, col: 0x4a148c },
-        { label: "Reset Transforms", action: "reset", x: 0.2, y: -0.38, w: 0.36, h: 0.08, col: 0x424242 }
+        { label: "📍 Relocate (0,0,0)", action: "relocate_origin", x: -0.2, y: 0.16, w: 0.36, h: 0.08, col: 0xf57f17 },
+        { label: "🔒 Lock Corridor", action: "lock", x: 0.2, y: 0.16, w: 0.36, h: 0.08, col: 0xc62828 },
+        { label: "🖼️ Place Media", action: "surface_place", x: -0.2, y: 0.06, w: 0.36, h: 0.08, col: 0x00838f },
+        { label: "🗑️ Delete Frame", action: "del_frame", x: 0.2, y: 0.06, w: 0.36, h: 0.08, col: 0xb71c1c },
+        { label: "Lock X Axis", action: "lock_x", x: -0.25, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
+        { label: "Lock Y Axis", action: "lock_y", x: 0.0, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
+        { label: "Lock Z Axis", action: "lock_z", x: 0.25, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
+        { label: "🔍 Scale Up", action: "s+", x: -0.2, y: -0.14, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "🔎 Scale Down", action: "s-", x: 0.2, y: -0.14, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↺ Rot Y -5°", action: "roty-", x: -0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↻ Rot Y +5°", action: "roty+", x: 0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "👻 Ghost Mode", action: "ghost", x: -0.2, y: -0.44, w: 0.36, h: 0.08, col: 0x4a148c },
+        { label: "Reset Transforms", action: "reset", x: 0.2, y: -0.44, w: 0.36, h: 0.08, col: 0x424242 }
       ];
 
       buttonsConfig.forEach(cfg => {
@@ -387,7 +409,7 @@
       c.height = 64;
       const ctx = c.getContext('2d');
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'Bold 22px Arial';
+      ctx.font = 'Bold 20px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(text, 128, 32);
@@ -439,32 +461,38 @@
       hudContext.strokeRect(0, 0, 512, 256);
 
       hudContext.fillStyle = '#00E676';
-      hudContext.font = 'Bold 24px Monospace';
+      hudContext.font = 'Bold 22px Monospace';
 
       const targetObj = selectedMediaFrame ? selectedMediaFrame : modelGroup;
       const labelName = selectedMediaFrame ? "MEDIA FRAME" : "CORRIDOR MODEL";
 
-      hudContext.fillText(`TARGET: ${labelName}`, 20, 45);
+      hudContext.fillText(`TARGET: ${labelName}`, 20, 40);
       if (targetObj) {
-        hudContext.fillText(`X: ${targetObj.position.x.toFixed(2)}m  Y: ${targetObj.position.y.toFixed(2)}m  Z: ${targetObj.position.z.toFixed(2)}m`, 20, 90);
+        hudContext.fillText(`X: ${targetObj.position.x.toFixed(2)}m  Y: ${targetObj.position.y.toFixed(2)}m  Z: ${targetObj.position.z.toFixed(2)}m`, 20, 80);
         const ry = THREE.MathUtils.radToDeg(targetObj.rotation.y).toFixed(1);
         const sc = Math.round(targetObj.scale.x * 100);
-        hudContext.fillText(`Rot Y: ${ry}°  Scale: ${sc}%`, 20, 135);
+        hudContext.fillText(`Rot Y: ${ry}°  Scale: ${sc}%`, 20, 120);
       }
 
-      if (isSurfacePlacementMode) {
+      hudContext.fillStyle = '#ffb74d';
+      hudContext.fillText(`LOCKS: X[${lockAxis.x?'ON':'OFF'}] Y[${lockAxis.y?'ON':'OFF'}] Z[${lockAxis.z?'ON':'OFF'}]`, 20, 160);
+
+      if (isRelocateOriginMode) {
+        hudContext.fillStyle = '#ffeb3b';
+        hudContext.fillText('MODE: AIM & TRIGGER TO SET (0,0,0)', 20, 205);
+      } else if (isSurfacePlacementMode) {
         hudContext.fillStyle = '#00e5ff';
-        hudContext.fillText('MODE: RAYCAST SURFACE PLACE', 20, 190);
+        hudContext.fillText('MODE: RAYCAST SURFACE PLACE', 20, 205);
       } else {
         hudContext.fillStyle = isLocked ? '#ff5252' : '#69f0ae';
-        hudContext.fillText(isLocked ? 'STATUS: CORRIDOR LOCKED' : 'STATUS: UNLOCKED', 20, 190);
+        hudContext.fillText(isLocked ? 'STATUS: CORRIDOR LOCKED' : 'STATUS: UNLOCKED', 20, 205);
       }
 
       hudTexture.needsUpdate = true;
 
       const infoEl = document.getElementById('selected-media-info');
       if (infoEl) {
-        infoEl.innerText = isSurfacePlacementMode ? 'Mode: Aim laser at wall/surface to place media' : `Active Target: ${labelName}`;
+        infoEl.innerText = isRelocateOriginMode ? 'Mode: Aim at model and pull trigger to move (0,0,0)' : `Active Target: ${labelName}`;
       }
     }
 
@@ -562,17 +590,14 @@
             }
           });
 
-          // AUTOMATIC INCH-TO-METER & METRIC SCALE CORRECTION
+          // Metric Scale Auto-Correction
           let box = new THREE.Box3().setFromObject(currentModel);
           let size = box.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z);
 
-          // If SketchUp exported in inches (e.g. a 60m corridor exported as 2362 units) OR miniature units (< 5 units)
           if (maxDim > 500) {
-            // Scaled from inches to meters
             currentModel.scale.set(0.0254, 0.0254, 0.0254);
           } else if (maxDim < 5) {
-            // Scaled from miniature model to 1:1 architectural proportions
             const autoFactor = 15.0 / Math.max(size.y, 0.1);
             currentModel.scale.set(autoFactor, autoFactor, autoFactor);
           } else {
@@ -618,7 +643,59 @@
       );
     }
 
-    // --- STAGED MEDIA CREATION & UPLOAD HANDLERS ---
+    // --- ORIGIN RELOCATION & AXIS LOCK HANDLERS ---
+    function toggleRelocateOriginMode(enable) {
+      if (enable !== undefined) {
+        isRelocateOriginMode = enable;
+      } else {
+        isRelocateOriginMode = !isRelocateOriginMode;
+      }
+
+      if (isRelocateOriginMode) {
+        isSurfacePlacementMode = false;
+        if (surfaceReticle) surfaceReticle.visible = false;
+      }
+
+      const btn2D = document.getElementById('relocate-origin-btn-2d');
+      if (btn2D) btn2D.classList.toggle('btn-active', isRelocateOriginMode);
+
+      if (originMarkerMesh) originMarkerMesh.visible = isRelocateOriginMode;
+      update3DHUDCanvas();
+    }
+
+    function relocateModelOriginToPoint(hitWorldPoint) {
+      if (!currentModel || !modelGroup) return;
+
+      // Transform world hit point into local coordinates of currentModel
+      const localPoint = currentModel.worldToLocal(hitWorldPoint.clone());
+
+      // Offset mesh geometry relative to origin
+      currentModel.position.sub(localPoint);
+      modelGroup.position.copy(hitWorldPoint);
+
+      if (originMarkerMesh) originMarkerMesh.position.copy(hitWorldPoint);
+
+      toggleRelocateOriginMode(false);
+      update3DHUDCanvas();
+    }
+
+    function toggleAxisLock(axis) {
+      if (axis === 'x') lockAxis.x = !lockAxis.x;
+      if (axis === 'y') lockAxis.y = !lockAxis.y;
+      if (axis === 'z') lockAxis.z = !lockAxis.z;
+
+      document.getElementById('lock-x-btn').innerText = `Lock X: ${lockAxis.x ? 'ON' : 'OFF'}`;
+      document.getElementById('lock-y-btn').innerText = `Lock Y: ${lockAxis.y ? 'ON' : 'OFF'}`;
+      document.getElementById('lock-z-btn').innerText = `Lock Z: ${lockAxis.z ? 'ON' : 'OFF'}`;
+
+      document.getElementById('lock-x-btn').classList.toggle('btn-active', lockAxis.x);
+      document.getElementById('lock-y-btn').classList.toggle('btn-active', lockAxis.y);
+      document.getElementById('lock-z-btn').classList.toggle('btn-active', lockAxis.z);
+
+      update3DHUDCanvas();
+    }
+
+    // --- MEDIA STAGING & UPLOAD ---
     function handleFileUpload(event) {
       const file = event.target.files[0];
       if (!file) return;
@@ -663,6 +740,11 @@
         isSurfacePlacementMode = !isSurfacePlacementMode;
       }
 
+      if (isSurfacePlacementMode) {
+        isRelocateOriginMode = false;
+        if (originMarkerMesh) originMarkerMesh.visible = false;
+      }
+
       const btn2D = document.getElementById('surface-place-btn-2d');
       if (btn2D) {
         btn2D.classList.toggle('btn-active', isSurfacePlacementMode);
@@ -675,7 +757,6 @@
       update3DHUDCanvas();
     }
 
-    // RAYCAST SURFACE PLACEMENT WITH AUTO-SCALING
     function placeStagedMediaOnSurface(point, normal, hitBoxSize) {
       if (!stagedMediaData) {
         stagedMediaData = { type: 'image', url: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800' };
@@ -713,7 +794,6 @@
 
       const frameMesh = new THREE.Mesh(planeGeo, planeMat);
 
-      // Frame Border
       const borderGeo = new THREE.BoxGeometry(initialWidth + 0.05, initialHeight + 0.05, 0.02);
       const borderMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.5 });
       const borderMesh = new THREE.Mesh(borderGeo, borderMat);
@@ -763,7 +843,7 @@
     }
 
     function updateSurfaceRaycast(ray) {
-      if (!isSurfacePlacementMode) {
+      if (!isSurfacePlacementMode && !isRelocateOriginMode) {
         if (surfaceReticle) surfaceReticle.visible = false;
         isSurfaceHitValid = false;
         return;
@@ -779,14 +859,21 @@
         const hitBox = new THREE.Box3().setFromObject(hit.object);
         hitBox.getSize(surfaceHitBox);
 
-        surfaceReticle.position.copy(surfaceHitPoint).add(surfaceHitNormal.clone().multiplyScalar(0.01));
-        const lookTarget = surfaceHitPoint.clone().add(surfaceHitNormal);
-        surfaceReticle.lookAt(lookTarget);
-        surfaceReticle.visible = true;
+        if (isSurfacePlacementMode) {
+          surfaceReticle.position.copy(surfaceHitPoint).add(surfaceHitNormal.clone().multiplyScalar(0.01));
+          const lookTarget = surfaceHitPoint.clone().add(surfaceHitNormal);
+          surfaceReticle.lookAt(lookTarget);
+          surfaceReticle.visible = true;
+        }
+
+        if (isRelocateOriginMode && originMarkerMesh) {
+          originMarkerMesh.position.copy(surfaceHitPoint);
+          originMarkerMesh.visible = true;
+        }
 
         isSurfaceHitValid = true;
       } else {
-        surfaceReticle.visible = false;
+        if (surfaceReticle) surfaceReticle.visible = false;
         isSurfaceHitValid = false;
       }
     }
@@ -801,6 +888,14 @@
       );
 
       raycaster.setFromCamera(mouse, camera);
+
+      if (isRelocateOriginMode) {
+        updateSurfaceRaycast(raycaster);
+        if (isSurfaceHitValid) {
+          relocateModelOriginToPoint(surfaceHitPoint);
+        }
+        return;
+      }
 
       if (isSurfacePlacementMode) {
         updateSurfaceRaycast(raycaster);
@@ -834,6 +929,16 @@
 
         raycaster.set(rayOrigin, rayDir);
 
+        // 1. Check Origin Relocation Raycast
+        if (isRelocateOriginMode) {
+          updateSurfaceRaycast(raycaster);
+          if (isSurfaceHitValid) {
+            relocateModelOriginToPoint(surfaceHitPoint);
+            return;
+          }
+        }
+
+        // 2. Surface Raycast Media Placement
         if (isSurfacePlacementMode) {
           updateSurfaceRaycast(raycaster);
           if (isSurfaceHitValid) {
@@ -842,6 +947,7 @@
           }
         }
 
+        // 3. Intersect 3D Menu Buttons
         if (ar3DMenuGroup.visible) {
           const intersects = raycaster.intersectObjects(ar3DButtons, true);
           if (intersects.length > 0) {
@@ -856,6 +962,7 @@
           }
         }
 
+        // 4. Intersect Placed Media Frames
         const mediaIntersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
         if (mediaIntersects.length > 0) {
           let hitObj = mediaIntersects[0].object;
@@ -875,6 +982,7 @@
           }
         }
 
+        // 5. Floor Raycast Placement for Corridor Origin
         if (!isLocked && isRaycastMode && floorReticle.visible && modelGroup) {
           modelGroup.position.copy(floorReticle.position);
           toggleRaycastPlacement();
@@ -900,6 +1008,13 @@
         toggleSurfacePlacementMode();
         return;
       }
+      if (action === 'relocate_origin') {
+        toggleRelocateOriginMode();
+        return;
+      }
+      if (action === 'lock_x') { toggleAxisLock('x'); return; }
+      if (action === 'lock_y') { toggleAxisLock('y'); return; }
+      if (action === 'lock_z') { toggleAxisLock('z'); return; }
 
       if (action === 'raycast' && !isLocked) {
         toggleRaycastPlacement();
@@ -916,12 +1031,12 @@
       update3DHUDCanvas();
     }
 
-    // DYNAMIC TARGET TRANSFORM METHODS
+    // DYNAMIC TARGET TRANSFORM METHODS WITH AXIS LOCK RESPECT
     function rotateActiveTarget(deg) {
       const target = selectedMediaFrame ? selectedMediaFrame : modelGroup;
       if (target === modelGroup && isLocked) return;
       if (target) {
-        target.rotation.y += THREE.MathUtils.degToRad(deg);
+        if (!lockAxis.y) target.rotation.y += THREE.MathUtils.degToRad(deg);
         if (selectedMediaFrame) selectionBoxHelper.update();
         update3DHUDCanvas();
       }
@@ -931,9 +1046,9 @@
       const target = selectedMediaFrame ? selectedMediaFrame : modelGroup;
       if (target === modelGroup && isLocked) return;
       if (target) {
-        target.position.x += dx;
-        target.position.y += dy;
-        target.position.z += dz;
+        if (!lockAxis.x) target.position.x += dx;
+        if (!lockAxis.y) target.position.y += dy;
+        if (!lockAxis.z) target.position.z += dz;
         if (selectedMediaFrame) selectionBoxHelper.update();
         update3DHUDCanvas();
       }
@@ -960,7 +1075,7 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        if (isSurfacePlacementMode) {
+        if (isSurfacePlacementMode || isRelocateOriginMode) {
           updateSurfaceRaycast(raycaster);
         } else if (isRaycastMode && !isLocked) {
           if (raycaster.ray.intersectPlane(floorPlane, rayIntersectionPoint)) {
@@ -1004,7 +1119,7 @@
       update3DHUDCanvas();
     }
 
-    // --- CONTINUOUS CONTROLLER THUMBSTICK INPUT POLLING (5° STEP ROTATION & SCALE SHORTCUTS) ---
+    // CONTROLLER THUMBSTICK SHORTCUTS
     function checkXRGamepadInputs() {
       if (renderer.xr.isPresenting) {
         const session = renderer.xr.getSession();
@@ -1016,14 +1131,12 @@
               const axisX = axes[2] !== undefined ? axes[2] : axes[0];
               const axisY = axes[3] !== undefined ? axes[3] : axes[1];
 
-              // Right Controller Joystick Shortcuts
+              // Right Controller Joystick
               if (source.handedness === 'right') {
-                // Scale Shortcut: Thumbstick Up/Down
                 if (Math.abs(axisY) > 0.3) {
                   const scaleFactor = axisY < 0 ? 1.015 : 0.985;
                   scaleActiveTarget(scaleFactor);
                 }
-                // Rotate Shortcut: Thumbstick Left/Right (5 Degree steps)
                 if (Math.abs(axisX) > 0.5 && (now - lastStickRotateTime > 220)) {
                   const rotAngle = axisX > 0 ? 5 : -5;
                   rotateActiveTarget(rotAngle);
@@ -1031,15 +1144,13 @@
                 }
               }
 
-              // Left Controller Joystick & Buttons
+              // Left Controller Joystick
               if (source.handedness === 'left') {
-                // Height Shortcut: Left Thumbstick Up/Down
                 if (Math.abs(axisY) > 0.3) {
                   const deltaY = axisY < 0 ? 0.02 : -0.02;
                   moveActiveTarget(0, deltaY, 0);
                 }
 
-                // X/Y Button Menu Toggle
                 const buttons = source.gamepad.buttons;
                 const btnPressed = (buttons[4] && buttons[4].pressed) || (buttons[5] && buttons[5].pressed) || (buttons[3] && buttons[3].pressed);
                 
