@@ -58,6 +58,12 @@
       gap: 6px;
       margin-bottom: 8px;
     }
+    .grid-2x2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
     button.btn {
       flex: 1;
       padding: 8px 4px;
@@ -138,19 +144,22 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Origin (0,0,0) & Axis Locks</h3>
-      <div class="control-group">
-        <button id="relocate-origin-btn-2d" class="btn" onclick="toggleRelocateOriginMode()">📍 Relocate Origin</button>
-        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock All</button>
+      <h3>1. Snap Pivot to Corner (0,0,0)</h3>
+      <div class="grid-2x2">
+        <button id="corner-fl-btn" class="btn btn-active" onclick="snapOriginToCorner('FL')">↖ Front-Left</button>
+        <button id="corner-fr-btn" class="btn" onclick="snapOriginToCorner('FR')">↗ Front-Right</button>
+        <button id="corner-bl-btn" class="btn" onclick="snapOriginToCorner('BL')">↙ Back-Left</button>
+        <button id="corner-br-btn" class="btn" onclick="snapOriginToCorner('BR')">↘ Back-Right</button>
       </div>
 
+      <h3>2. Axis Locks & Corridor Transforms</h3>
       <div class="control-group">
         <button id="lock-x-btn" class="btn" onclick="toggleAxisLock('x')">Lock X: OFF</button>
         <button id="lock-y-btn" class="btn" onclick="toggleAxisLock('y')">Lock Y: OFF</button>
         <button id="lock-z-btn" class="btn" onclick="toggleAxisLock('z')">Lock Z: OFF</button>
+        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock All</button>
       </div>
 
-      <h3>2. Corridor Transforms</h3>
       <div class="control-group">
         <button class="btn" onclick="rotateActiveTarget(-5)">↺ Rot Y -5°</button>
         <button class="btn" onclick="rotateActiveTarget(5)">↻ Rot Y +5°</button>
@@ -178,7 +187,7 @@
       </div>
 
       <div class="instructions">
-        • <b>Relocate Origin:</b> Click "Relocate Origin", click anywhere on the model, and $(0,0,0)$ will snap to that exact point.<br>
+        • <b>Corner Pivot Snapping:</b> Select Front-Left, Front-Right, Back-Left, or Back-Right to set the exact rotation pivot.<br>
         • <b>Axis Locks:</b> Lock individual X, Y, or Z movement/rotations.<br>
         • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
@@ -194,7 +203,6 @@
     let axesHelper = null;
     let floorReticle = null;
     let surfaceReticle = null;
-    let originMarkerMesh = null;
     let laserLine = null;
 
     // Staged & Placed Media Frame Management
@@ -206,7 +214,7 @@
 
     // Mode & Lock Flags
     let isSurfacePlacementMode = false;
-    let isRelocateOriginMode = false;
+    let activeCornerPivot = 'FL'; // FL, FR, BL, BR
     let lockAxis = { x: false, y: false, z: false };
 
     let surfaceHitPoint = new THREE.Vector3();
@@ -263,13 +271,6 @@
       // 3D RGB Axes
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
-
-      // Origin Relocation Marker (Yellow Sphere)
-      const originSphereGeo = new THREE.SphereGeometry(0.04, 16, 16);
-      const originSphereMat = new THREE.MeshBasicMaterial({ color: 0xffeb3b });
-      originMarkerMesh = new THREE.Mesh(originSphereGeo, originSphereMat);
-      originMarkerMesh.visible = false;
-      scene.add(originMarkerMesh);
 
       // Target Floor Reticle
       const ringGeo = new THREE.RingGeometry(0.12, 0.16, 32);
@@ -368,19 +369,19 @@
       ar3DMenuGroup.add(hudMesh);
 
       const buttonsConfig = [
-        { label: "📍 Relocate (0,0,0)", action: "relocate_origin", x: -0.2, y: 0.16, w: 0.36, h: 0.08, col: 0xf57f17 },
-        { label: "🔒 Lock Corridor", action: "lock", x: 0.2, y: 0.16, w: 0.36, h: 0.08, col: 0xc62828 },
-        { label: "🖼️ Place Media", action: "surface_place", x: -0.2, y: 0.06, w: 0.36, h: 0.08, col: 0x00838f },
-        { label: "🗑️ Delete Frame", action: "del_frame", x: 0.2, y: 0.06, w: 0.36, h: 0.08, col: 0xb71c1c },
+        { label: "↖ Pivot Front-Left", action: "pivot_fl", x: -0.2, y: 0.16, w: 0.36, h: 0.08, col: 0x2e7d32 },
+        { label: "↗ Pivot Front-Right", action: "pivot_fr", x: 0.2, y: 0.16, w: 0.36, h: 0.08, col: 0x2e7d32 },
+        { label: "↙ Pivot Back-Left", action: "pivot_bl", x: -0.2, y: 0.06, w: 0.36, h: 0.08, col: 0x2e7d32 },
+        { label: "↘ Pivot Back-Right", action: "pivot_br", x: 0.2, y: 0.06, w: 0.36, h: 0.08, col: 0x2e7d32 },
         { label: "Lock X Axis", action: "lock_x", x: -0.25, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
         { label: "Lock Y Axis", action: "lock_y", x: 0.0, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
         { label: "Lock Z Axis", action: "lock_z", x: 0.25, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
-        { label: "🔍 Scale Up", action: "s+", x: -0.2, y: -0.14, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "🔎 Scale Down", action: "s-", x: 0.2, y: -0.14, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "↺ Rot Y -5°", action: "roty-", x: -0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "↻ Rot Y +5°", action: "roty+", x: 0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▲ Height +10cm", action: "h+", x: -0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
-        { label: "▼ Height -10cm", action: "h-", x: 0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "🔒 Lock Corridor", action: "lock", x: -0.2, y: -0.14, w: 0.36, h: 0.08, col: 0xc62828 },
+        { label: "🖼️ Place Media", action: "surface_place", x: 0.2, y: -0.14, w: 0.36, h: 0.08, col: 0x00838f },
+        { label: "🔍 Scale Up", action: "s+", x: -0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "🔎 Scale Down", action: "s-", x: 0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↺ Rot Y -5°", action: "roty-", x: -0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
+        { label: "↻ Rot Y +5°", action: "roty+", x: 0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
         { label: "👻 Ghost Mode", action: "ghost", x: -0.2, y: -0.44, w: 0.36, h: 0.08, col: 0x4a148c },
         { label: "Reset Transforms", action: "reset", x: 0.2, y: -0.44, w: 0.36, h: 0.08, col: 0x424242 }
       ];
@@ -474,13 +475,13 @@
         hudContext.fillText(`Rot Y: ${ry}°  Scale: ${sc}%`, 20, 120);
       }
 
-      hudContext.fillStyle = '#ffb74d';
-      hudContext.fillText(`LOCKS: X[${lockAxis.x?'ON':'OFF'}] Y[${lockAxis.y?'ON':'OFF'}] Z[${lockAxis.z?'ON':'OFF'}]`, 20, 160);
+      hudContext.fillStyle = '#4fc3f7';
+      hudContext.fillText(`PIVOT: CORNER [${activeCornerPivot}]`, 20, 160);
 
-      if (isRelocateOriginMode) {
-        hudContext.fillStyle = '#ffeb3b';
-        hudContext.fillText('MODE: AIM & TRIGGER TO SET (0,0,0)', 20, 205);
-      } else if (isSurfacePlacementMode) {
+      hudContext.fillStyle = '#ffb74d';
+      hudContext.fillText(`LOCKS: X[${lockAxis.x?'ON':'OFF'}] Y[${lockAxis.y?'ON':'OFF'}] Z[${lockAxis.z?'ON':'OFF'}]`, 280, 160);
+
+      if (isSurfacePlacementMode) {
         hudContext.fillStyle = '#00e5ff';
         hudContext.fillText('MODE: RAYCAST SURFACE PLACE', 20, 205);
       } else {
@@ -492,7 +493,7 @@
 
       const infoEl = document.getElementById('selected-media-info');
       if (infoEl) {
-        infoEl.innerText = isRelocateOriginMode ? 'Mode: Aim at model and pull trigger to move (0,0,0)' : `Active Target: ${labelName}`;
+        infoEl.innerText = `Active Target: ${labelName} | Pivot: ${activeCornerPivot}`;
       }
     }
 
@@ -604,14 +605,14 @@
             currentModel.scale.set(1.0, 1.0, 1.0);
           }
 
-          box = new THREE.Box3().setFromObject(currentModel);
-          const center = box.getCenter(new THREE.Vector3());
-          const finalSize = box.getSize(new THREE.Vector3());
-
-          currentModel.position.set(-center.x, -box.min.y, -box.max.z);
           modelGroup.add(currentModel);
 
+          // Apply initial Front-Left Corner Pivot
+          snapOriginToCorner('FL');
+
           if (orbitControls) {
+            box = new THREE.Box3().setFromObject(modelGroup);
+            const finalSize = box.getSize(new THREE.Vector3());
             orbitControls.target.set(0, finalSize.y / 2, -finalSize.z / 2);
             camera.position.set(0, finalSize.y / 2 + 1, finalSize.z * 0.5 + 2);
             orbitControls.update();
@@ -643,50 +644,42 @@
       );
     }
 
-    // --- ROBUST ORIGIN RELOCATION FIX ---
-    function toggleRelocateOriginMode(enable) {
-      if (enable !== undefined) {
-        isRelocateOriginMode = enable;
-      } else {
-        isRelocateOriginMode = !isRelocateOriginMode;
-      }
-
-      if (isRelocateOriginMode) {
-        isSurfacePlacementMode = false;
-        if (surfaceReticle) surfaceReticle.visible = false;
-      }
-
-      const btn2D = document.getElementById('relocate-origin-btn-2d');
-      if (btn2D) btn2D.classList.toggle('btn-active', isRelocateOriginMode);
-
-      if (originMarkerMesh) originMarkerMesh.visible = isRelocateOriginMode;
-      update3DHUDCanvas();
-    }
-
-    function relocateModelOriginToPoint(hitWorldPoint) {
+    // --- CORNER PIVOT SNAPPING ENGINE ---
+    function snapOriginToCorner(cornerCode) {
       if (!currentModel || !modelGroup) return;
 
-      // Safely offset inner currentModel geometry to shift the pivot without breaking matrix hierarchy
-      const modelWorldPos = new THREE.Vector3();
-      modelGroup.getWorldPosition(modelWorldPos);
+      activeCornerPivot = cornerCode;
 
-      // Compute displacement vector
-      const diffVector = hitWorldPoint.clone().sub(modelWorldPos);
+      // Calculate bounding box of currentModel geometry
+      const box = new THREE.Box3().setFromObject(currentModel);
 
-      // Move outer modelGroup to hit point, and shift child mesh backward by exact same vector
-      modelGroup.position.copy(hitWorldPoint);
-      currentModel.position.sub(diffVector);
+      let targetX = box.min.x;
+      let targetY = box.min.y; // Floor level
+      let targetZ = box.max.z;
 
-      if (originMarkerMesh) {
-        originMarkerMesh.position.set(0, 0, 0); // Grounded at new (0,0,0)
+      if (cornerCode === 'FL') { // Front-Left
+        targetX = box.min.x;
+        targetZ = box.max.z;
+      } else if (cornerCode === 'FR') { // Front-Right
+        targetX = box.max.x;
+        targetZ = box.max.z;
+      } else if (cornerCode === 'BL') { // Back-Left
+        targetX = box.min.x;
+        targetZ = box.min.z;
+      } else if (cornerCode === 'BR') { // Back-Right
+        targetX = box.max.x;
+        targetZ = box.min.z;
       }
 
-      if (orbitControls) {
-        orbitControls.target.copy(hitWorldPoint);
-        orbitControls.update();
-      }
+      // Shift child mesh so that chosen corner aligns with modelGroup (0,0,0)
+      currentModel.position.set(-targetX, -targetY, -targetZ);
 
-      toggleRelocateOriginMode(false);
+      // Update 2D UI Button highlight
+      ['fl', 'fr', 'bl', 'br'].forEach(code => {
+        const btn = document.getElementById(`corner-${code}-btn`);
+        if (btn) btn.classList.toggle('btn-active', code.toUpperCase() === cornerCode);
+      });
+
       update3DHUDCanvas();
     }
 
@@ -749,11 +742,6 @@
         isSurfacePlacementMode = enable;
       } else {
         isSurfacePlacementMode = !isSurfacePlacementMode;
-      }
-
-      if (isSurfacePlacementMode) {
-        isRelocateOriginMode = false;
-        if (originMarkerMesh) originMarkerMesh.visible = false;
       }
 
       const btn2D = document.getElementById('surface-place-btn-2d');
@@ -854,7 +842,7 @@
     }
 
     function updateSurfaceRaycast(ray) {
-      if (!isSurfacePlacementMode && !isRelocateOriginMode) {
+      if (!isSurfacePlacementMode) {
         if (surfaceReticle) surfaceReticle.visible = false;
         isSurfaceHitValid = false;
         return;
@@ -877,11 +865,6 @@
           surfaceReticle.visible = true;
         }
 
-        if (isRelocateOriginMode && originMarkerMesh) {
-          originMarkerMesh.position.copy(surfaceHitPoint);
-          originMarkerMesh.visible = true;
-        }
-
         isSurfaceHitValid = true;
       } else {
         if (surfaceReticle) surfaceReticle.visible = false;
@@ -899,14 +882,6 @@
       );
 
       raycaster.setFromCamera(mouse, camera);
-
-      if (isRelocateOriginMode) {
-        updateSurfaceRaycast(raycaster);
-        if (isSurfaceHitValid) {
-          relocateModelOriginToPoint(surfaceHitPoint);
-        }
-        return;
-      }
 
       if (isSurfacePlacementMode) {
         updateSurfaceRaycast(raycaster);
@@ -940,16 +915,7 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        // 1. Check Origin Relocation Raycast
-        if (isRelocateOriginMode) {
-          updateSurfaceRaycast(raycaster);
-          if (isSurfaceHitValid) {
-            relocateModelOriginToPoint(surfaceHitPoint);
-            return;
-          }
-        }
-
-        // 2. Surface Raycast Media Placement
+        // 1. Surface Raycast Media Placement
         if (isSurfacePlacementMode) {
           updateSurfaceRaycast(raycaster);
           if (isSurfaceHitValid) {
@@ -958,7 +924,7 @@
           }
         }
 
-        // 3. Intersect 3D Menu Buttons
+        // 2. Intersect 3D Menu Buttons
         if (ar3DMenuGroup.visible) {
           const intersects = raycaster.intersectObjects(ar3DButtons, true);
           if (intersects.length > 0) {
@@ -973,7 +939,7 @@
           }
         }
 
-        // 4. Intersect Placed Media Frames
+        // 3. Intersect Placed Media Frames
         const mediaIntersects = raycaster.intersectObjects(mediaFramesGroup.children, true);
         if (mediaIntersects.length > 0) {
           let hitObj = mediaIntersects[0].object;
@@ -993,7 +959,7 @@
           }
         }
 
-        // 5. Floor Raycast Placement for Corridor Origin
+        // 4. Floor Raycast Placement for Corridor Origin
         if (!isLocked && isRaycastMode && floorReticle.visible && modelGroup) {
           modelGroup.position.copy(floorReticle.position);
           toggleRaycastPlacement();
@@ -1019,10 +985,12 @@
         toggleSurfacePlacementMode();
         return;
       }
-      if (action === 'relocate_origin') {
-        toggleRelocateOriginMode();
-        return;
-      }
+
+      if (action === 'pivot_fl') { snapOriginToCorner('FL'); return; }
+      if (action === 'pivot_fr') { snapOriginToCorner('FR'); return; }
+      if (action === 'pivot_bl') { snapOriginToCorner('BL'); return; }
+      if (action === 'pivot_br') { snapOriginToCorner('BR'); return; }
+
       if (action === 'lock_x') { toggleAxisLock('x'); return; }
       if (action === 'lock_y') { toggleAxisLock('y'); return; }
       if (action === 'lock_z') { toggleAxisLock('z'); return; }
@@ -1086,7 +1054,7 @@
 
         raycaster.set(rayOrigin, rayDir);
 
-        if (isSurfacePlacementMode || isRelocateOriginMode) {
+        if (isSurfacePlacementMode) {
           updateSurfaceRaycast(raycaster);
         } else if (isRaycastMode && !isLocked) {
           if (raycaster.ray.intersectPlane(floorPlane, rayIntersectionPoint)) {
