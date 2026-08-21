@@ -144,7 +144,7 @@
 
       <div id="status-msg">Initializing...</div>
 
-      <h3>1. Snap Pivot to Corner (0,0,0)</h3>
+      <h3>1. Corner Pivot & Floor Positioning</h3>
       <div class="grid-2x2">
         <button id="corner-fl-btn" class="btn btn-active" onclick="snapOriginToCorner('FL')">↖ Front-Left</button>
         <button id="corner-fr-btn" class="btn" onclick="snapOriginToCorner('FR')">↗ Front-Right</button>
@@ -152,12 +152,16 @@
         <button id="corner-br-btn" class="btn" onclick="snapOriginToCorner('BR')">↘ Back-Right</button>
       </div>
 
-      <h3>2. Axis Locks & Corridor Transforms</h3>
+      <div class="control-group">
+        <button id="floor-place-btn-2d" class="btn" onclick="toggleRaycastPlacement()">🎯 Raycast Place on Floor</button>
+        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock All</button>
+      </div>
+
+      <h3>2. Axis Locks & Transforms</h3>
       <div class="control-group">
         <button id="lock-x-btn" class="btn" onclick="toggleAxisLock('x')">Lock X: OFF</button>
         <button id="lock-y-btn" class="btn" onclick="toggleAxisLock('y')">Lock Y: OFF</button>
         <button id="lock-z-btn" class="btn" onclick="toggleAxisLock('z')">Lock Z: OFF</button>
-        <button id="lock-btn-2d" class="btn" onclick="toggleLockPosition()">🔒 Lock All</button>
       </div>
 
       <div class="control-group">
@@ -187,8 +191,8 @@
       </div>
 
       <div class="instructions">
-        • <b>Corner Pivot Snapping:</b> Select Front-Left, Front-Right, Back-Left, or Back-Right to set the exact rotation pivot.<br>
-        • <b>Axis Locks:</b> Lock individual X, Y, or Z movement/rotations.<br>
+        • <b>Floor Placement:</b> Select a corner pivot $\rightarrow$ click "Raycast Place on Floor" $\rightarrow$ aim controller at room floor $\rightarrow$ pull trigger.<br>
+        • <b>5° Step Rotation:</b> Rotates precisely around your active grounded corner.<br>
         • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
     </div>
@@ -373,11 +377,11 @@
         { label: "↗ Pivot Front-Right", action: "pivot_fr", x: 0.2, y: 0.16, w: 0.36, h: 0.08, col: 0x2e7d32 },
         { label: "↙ Pivot Back-Left", action: "pivot_bl", x: -0.2, y: 0.06, w: 0.36, h: 0.08, col: 0x2e7d32 },
         { label: "↘ Pivot Back-Right", action: "pivot_br", x: 0.2, y: 0.06, w: 0.36, h: 0.08, col: 0x2e7d32 },
-        { label: "Lock X Axis", action: "lock_x", x: -0.25, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
-        { label: "Lock Y Axis", action: "lock_y", x: 0.0, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
-        { label: "Lock Z Axis", action: "lock_z", x: 0.25, y: -0.04, w: 0.22, h: 0.07, col: 0x424242 },
-        { label: "🔒 Lock Corridor", action: "lock", x: -0.2, y: -0.14, w: 0.36, h: 0.08, col: 0xc62828 },
-        { label: "🖼️ Place Media", action: "surface_place", x: 0.2, y: -0.14, w: 0.36, h: 0.08, col: 0x00838f },
+        { label: "🎯 Place on Floor", action: "raycast", x: -0.2, y: -0.04, w: 0.36, h: 0.08, col: 0x00838f },
+        { label: "🔒 Lock Corridor", action: "lock", x: 0.2, y: -0.04, w: 0.36, h: 0.08, col: 0xc62828 },
+        { label: "Lock X Axis", action: "lock_x", x: -0.25, y: -0.14, w: 0.22, h: 0.07, col: 0x424242 },
+        { label: "Lock Y Axis", action: "lock_y", x: 0.0, y: -0.14, w: 0.22, h: 0.07, col: 0x424242 },
+        { label: "Lock Z Axis", action: "lock_z", x: 0.25, y: -0.14, w: 0.22, h: 0.07, col: 0x424242 },
         { label: "🔍 Scale Up", action: "s+", x: -0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
         { label: "🔎 Scale Down", action: "s-", x: 0.2, y: -0.24, w: 0.36, h: 0.08, col: 0x333333 },
         { label: "↺ Rot Y -5°", action: "roty-", x: -0.2, y: -0.34, w: 0.36, h: 0.08, col: 0x333333 },
@@ -481,9 +485,9 @@
       hudContext.fillStyle = '#ffb74d';
       hudContext.fillText(`LOCKS: X[${lockAxis.x?'ON':'OFF'}] Y[${lockAxis.y?'ON':'OFF'}] Z[${lockAxis.z?'ON':'OFF'}]`, 280, 160);
 
-      if (isSurfacePlacementMode) {
+      if (isRaycastMode) {
         hudContext.fillStyle = '#00e5ff';
-        hudContext.fillText('MODE: RAYCAST SURFACE PLACE', 20, 205);
+        hudContext.fillText('MODE: AIM & TRIGGER TO PLACE CORNER', 20, 205);
       } else {
         hudContext.fillStyle = isLocked ? '#ff5252' : '#69f0ae';
         hudContext.fillText(isLocked ? 'STATUS: CORRIDOR LOCKED' : 'STATUS: UNLOCKED', 20, 205);
@@ -493,7 +497,7 @@
 
       const infoEl = document.getElementById('selected-media-info');
       if (infoEl) {
-        infoEl.innerText = `Active Target: ${labelName} | Pivot: ${activeCornerPivot}`;
+        infoEl.innerText = isRaycastMode ? 'Mode: Aim laser at floor to place corner' : `Active Target: ${labelName} | Pivot: ${activeCornerPivot}`;
       }
     }
 
@@ -650,31 +654,28 @@
 
       activeCornerPivot = cornerCode;
 
-      // Calculate bounding box of currentModel geometry
       const box = new THREE.Box3().setFromObject(currentModel);
 
       let targetX = box.min.x;
-      let targetY = box.min.y; // Floor level
+      let targetY = box.min.y;
       let targetZ = box.max.z;
 
-      if (cornerCode === 'FL') { // Front-Left
+      if (cornerCode === 'FL') {
         targetX = box.min.x;
         targetZ = box.max.z;
-      } else if (cornerCode === 'FR') { // Front-Right
+      } else if (cornerCode === 'FR') {
         targetX = box.max.x;
         targetZ = box.max.z;
-      } else if (cornerCode === 'BL') { // Back-Left
+      } else if (cornerCode === 'BL') {
         targetX = box.min.x;
         targetZ = box.min.z;
-      } else if (cornerCode === 'BR') { // Back-Right
+      } else if (cornerCode === 'BR') {
         targetX = box.max.x;
         targetZ = box.min.z;
       }
 
-      // Shift child mesh so that chosen corner aligns with modelGroup (0,0,0)
       currentModel.position.set(-targetX, -targetY, -targetZ);
 
-      // Update 2D UI Button highlight
       ['fl', 'fr', 'bl', 'br'].forEach(code => {
         const btn = document.getElementById(`corner-${code}-btn`);
         if (btn) btn.classList.toggle('btn-active', code.toUpperCase() === cornerCode);
@@ -959,7 +960,7 @@
           }
         }
 
-        // 4. Floor Raycast Placement for Corridor Origin
+        // 4. Floor Raycast Placement (Snaps Active Corner Pivot to Floor Hit Point)
         if (!isLocked && isRaycastMode && floorReticle.visible && modelGroup) {
           modelGroup.position.copy(floorReticle.position);
           toggleRaycastPlacement();
@@ -1070,7 +1071,10 @@
     function toggleRaycastPlacement() {
       if (isLocked) return;
       isRaycastMode = !isRaycastMode;
+      const btn2D = document.getElementById('floor-place-btn-2d');
+      if (btn2D) btn2D.classList.toggle('btn-active', isRaycastMode);
       if (!isRaycastMode && floorReticle) floorReticle.visible = false;
+      update3DHUDCanvas();
     }
 
     function rotateModelY(deg) { rotateActiveTarget(deg); }
