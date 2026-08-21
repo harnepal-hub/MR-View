@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Studio Gallery MR Viewer</title>
+  <title>Studio Gallery MR Viewer - High Performance</title>
   <style>
     html, body {
       margin: 0;
@@ -191,8 +191,8 @@
       </div>
 
       <div class="instructions">
-        • <b>Floor Placement:</b> Select a corner pivot $\rightarrow$ click "Raycast Place on Floor" $\rightarrow$ aim controller at room floor $\rightarrow$ pull trigger.<br>
-        • <b>5° Step Rotation:</b> Rotates precisely around your active grounded corner.<br>
+        • <b>Performance Fix:</b> Fixed Foveated Rendering & VRAM garbage collection enabled.<br>
+        • <b>Floor Placement:</b> Select corner pivot $\rightarrow$ click "Raycast Place on Floor" $\rightarrow$ aim controller at floor $\rightarrow$ pull trigger.<br>
         • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
     </div>
@@ -209,16 +209,14 @@
     let surfaceReticle = null;
     let laserLine = null;
 
-    // Staged & Placed Media Frame Management
     let stagedMediaData = null;
     let mediaFramesGroup = null;
     let placedMediaFrames = [];
     let selectedMediaFrame = null;
     let selectionBoxHelper = null;
 
-    // Mode & Lock Flags
     let isSurfacePlacementMode = false;
-    let activeCornerPivot = 'FL'; // FL, FR, BL, BR
+    let activeCornerPivot = 'FL';
     let lockAxis = { x: false, y: false, z: false };
 
     let surfaceHitPoint = new THREE.Vector3();
@@ -226,7 +224,6 @@
     let surfaceHitBox = new THREE.Vector3();
     let isSurfaceHitValid = false;
 
-    // 3D VR Menu Objects
     let ar3DMenuGroup = null;
     let ar3DButtons = [];
     let hudCanvas, hudTexture, hudContext;
@@ -237,7 +234,6 @@
     let isGhostMode = false;
     let isRaycastMode = false;
     
-    // Raycaster Setup
     const raycaster = new THREE.Raycaster();
     const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const rayIntersectionPoint = new THREE.Vector3();
@@ -245,7 +241,6 @@
     let prevLeftBtnState = false;
     let lastStickRotateTime = 0;
 
-    // Loader Setup
     const loader = new THREE.GLTFLoader();
     const dracoLoader = new THREE.DRACOLoader();
     dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
@@ -267,16 +262,13 @@
       mediaFramesGroup = new THREE.Group();
       scene.add(mediaFramesGroup);
 
-      // Selection Box Helper
       selectionBoxHelper = new THREE.BoxHelper(new THREE.Mesh(), 0x00ffff);
       selectionBoxHelper.visible = false;
       scene.add(selectionBoxHelper);
 
-      // 3D RGB Axes
       axesHelper = new THREE.AxesHelper(1.5);
       modelGroup.add(axesHelper);
 
-      // Target Floor Reticle
       const ringGeo = new THREE.RingGeometry(0.12, 0.16, 32);
       ringGeo.rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x00E676, side: THREE.DoubleSide });
@@ -284,14 +276,12 @@
       floorReticle.visible = false;
       scene.add(floorReticle);
 
-      // Surface Placement Reticle
       const surfGeo = new THREE.PlaneGeometry(0.6, 0.4);
       const surfMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff, side: THREE.DoubleSide, wireframe: true });
       surfaceReticle = new THREE.Mesh(surfGeo, surfMat);
       surfaceReticle.visible = false;
       scene.add(surfaceReticle);
 
-      // Lighting
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
       scene.add(ambientLight);
 
@@ -303,9 +293,9 @@
       fillLight.position.set(-5, 5, -5);
       scene.add(fillLight);
 
-      // Renderer
+      // HIGH PERFORMANCE RENDERER SETTINGS FOR META QUEST
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setPixelRatio(1.0); // Enforce 1.0 pixel ratio in VR to eliminate stutter/lag
       renderer.setSize(window.innerWidth, window.innerHeight);
 
       renderer.outputEncoding = THREE.sRGBEncoding;
@@ -314,6 +304,12 @@
 
       renderer.xr.enabled = true;
       renderer.xr.setReferenceSpaceType('local-floor');
+
+      // Enable Fixed Foveated Rendering for Quest 3
+      if (renderer.xr.setFoveation) {
+        renderer.xr.setFoveation(1.0);
+      }
+
       document.body.appendChild(renderer.domElement);
 
       orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -324,12 +320,10 @@
 
       renderer.domElement.addEventListener('pointerdown', onDesktopPointerDown);
 
-      // Controller Setup
       controllerRight = renderer.xr.getController(0);
       controllerRight.addEventListener('select', onControllerSelect);
       scene.add(controllerRight);
 
-      // Laser Pointer
       const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x00E676, transparent: true, opacity: 0.8 });
       laserLine = new THREE.Line(lineGeo, lineMat);
@@ -350,7 +344,6 @@
       window.addEventListener('resize', onWindowResize);
     }
 
-    // --- NATIVE 3D AR CONTROL MENU ---
     function build3DARMenu() {
       ar3DMenuGroup = new THREE.Group();
       ar3DMenuGroup.visible = false;
@@ -555,6 +548,37 @@
       }
     }
 
+    // DISPOSE VRAM MEMORY ON MODEL SWITCH
+    function disposeCurrentModel() {
+      if (!currentModel) return;
+
+      currentModel.traverse((child) => {
+        if (child.isMesh) {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(mat => disposeMaterial(mat));
+            } else {
+              disposeMaterial(child.material);
+            }
+          }
+        }
+      });
+
+      modelGroup.remove(currentModel);
+      currentModel = null;
+    }
+
+    function disposeMaterial(mat) {
+      if (mat.map) mat.map.dispose();
+      if (mat.lightMap) mat.lightMap.dispose();
+      if (mat.bumpMap) mat.bumpMap.dispose();
+      if (mat.normalMap) mat.normalMap.dispose();
+      if (mat.specularMap) mat.specularMap.dispose();
+      if (mat.envMap) mat.envMap.dispose();
+      mat.dispose();
+    }
+
     function loadModel(filename) {
       const statusEl = document.getElementById('status-msg');
       const arBtn = document.getElementById('custom-ar-button');
@@ -565,7 +589,7 @@
       statusEl.style.color = '#ff9800';
       statusEl.innerText = 'Downloading ' + filename + '...';
 
-      if (currentModel) modelGroup.remove(currentModel);
+      disposeCurrentModel();
 
       let baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
       let targetUrl = baseUrl + filename;
@@ -588,8 +612,8 @@
 
                 if (child.material.map) {
                   child.material.map.encoding = THREE.sRGBEncoding;
-                  child.material.map.generateMipmaps = true;
-                  child.material.map.minFilter = THREE.LinearMipmapLinearFilter;
+                  child.material.map.generateMipmaps = false; // Turn off mipmaps for mobile VR VRAM speed
+                  child.material.map.minFilter = THREE.LinearFilter;
                 }
               }
             }
