@@ -178,7 +178,7 @@
       </div>
 
       <div class="instructions">
-        • <b>Relocate Origin:</b> Click "Relocate Origin", aim laser at any point on the model, and pull trigger to move $(0,0,0)$.<br>
+        • <b>Relocate Origin:</b> Click "Relocate Origin", click anywhere on the model, and $(0,0,0)$ will snap to that exact point.<br>
         • <b>Axis Locks:</b> Lock individual X, Y, or Z movement/rotations.<br>
         • <b>Left Controller X/Y:</b> Toggle 3D AR Menu.
       </div>
@@ -643,7 +643,7 @@
       );
     }
 
-    // --- ORIGIN RELOCATION & AXIS LOCK HANDLERS ---
+    // --- ROBUST ORIGIN RELOCATION FIX ---
     function toggleRelocateOriginMode(enable) {
       if (enable !== undefined) {
         isRelocateOriginMode = enable;
@@ -666,14 +666,25 @@
     function relocateModelOriginToPoint(hitWorldPoint) {
       if (!currentModel || !modelGroup) return;
 
-      // Transform world hit point into local coordinates of currentModel
-      const localPoint = currentModel.worldToLocal(hitWorldPoint.clone());
+      // Safely offset inner currentModel geometry to shift the pivot without breaking matrix hierarchy
+      const modelWorldPos = new THREE.Vector3();
+      modelGroup.getWorldPosition(modelWorldPos);
 
-      // Offset mesh geometry relative to origin
-      currentModel.position.sub(localPoint);
+      // Compute displacement vector
+      const diffVector = hitWorldPoint.clone().sub(modelWorldPos);
+
+      // Move outer modelGroup to hit point, and shift child mesh backward by exact same vector
       modelGroup.position.copy(hitWorldPoint);
+      currentModel.position.sub(diffVector);
 
-      if (originMarkerMesh) originMarkerMesh.position.copy(hitWorldPoint);
+      if (originMarkerMesh) {
+        originMarkerMesh.position.set(0, 0, 0); // Grounded at new (0,0,0)
+      }
+
+      if (orbitControls) {
+        orbitControls.target.copy(hitWorldPoint);
+        orbitControls.update();
+      }
 
       toggleRelocateOriginMode(false);
       update3DHUDCanvas();
